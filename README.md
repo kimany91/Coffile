@@ -25,7 +25,11 @@ NOM DU PROJET/
 
 ## Installation
 
-Lance `Coffile-Setup-1.7.8.exe`. C'est un installateur Windows classique (NSIS) :
+Coffile existe pour **Windows** et pour **Mac** (Apple Silicon et Intel), avec les mêmes fonctions. Les installateurs sont dans la dernière version publiée : https://github.com/kimany91/Coffile/releases/latest
+
+### Windows
+
+Lance `Coffile-Setup-x.y.z.exe`. C'est un installateur Windows classique (NSIS) :
 
 - il s'installe pour l'utilisateur courant, sans droits administrateur ;
 - il crée un raccourci sur le Bureau et dans le menu Démarrer ;
@@ -34,7 +38,15 @@ Lance `Coffile-Setup-1.7.8.exe`. C'est un installateur Windows classique (NSIS) 
 > **À propos de l'avertissement Windows (SmartScreen)**
 > L'application ne contient rien de suspect : pas de compression exotique, pas d'élévation de privilèges, et les métadonnées (nom, version, icône) sont renseignées.
 > Comme l'installateur n'est **pas signé numériquement**, Windows peut quand même afficher « Windows a protégé votre ordinateur » au premier lancement. Clique sur **Informations complémentaires › Exécuter quand même**.
-> Pour supprimer complètement cet avertissement, il faut signer l'exe avec un certificat de signature de code (par exemple Azure Trusted Signing, environ 10 €/mois, ou un certificat OV/EV). Le workflow `.github/workflows/build-windows.yml` signe automatiquement si tu ajoutes le certificat dans les secrets du dépôt.
+> Pour supprimer complètement cet avertissement, il faut signer l'exe avec un certificat de signature de code (par exemple Azure Trusted Signing, environ 10 €/mois, ou un certificat OV/EV). Le workflow `.github/workflows/release.yml` signe automatiquement si tu ajoutes le certificat dans les secrets du dépôt.
+
+### Mac
+
+1. Télécharge `Coffile-x.y.z-mac-arm64.dmg` pour un Mac Apple Silicon (M1, M2, M3, M4…), ou `Coffile-x.y.z-mac-x64.dmg` pour un Mac Intel (menu Pomme › À propos de ce Mac › Puce ou Processeur).
+2. Ouvre le .dmg et glisse **Coffile** dans **Applications**. Il doit être dans Applications pour pouvoir se mettre à jour tout seul.
+3. La première fois, macOS dit qu'il ne peut pas vérifier l'app (elle n'est pas dans l'App Store et n'est pas signée par un compte développeur Apple payant). Ouvre Coffile une fois, puis va dans **Réglages Système › Confidentialité et sécurité** et clique sur **Ouvrir quand même**. Sur les anciens macOS : clic droit sur Coffile › Ouvrir › Ouvrir. C'est à faire une seule fois : les mises à jour n'en redemandent pas.
+
+Tout marche comme sur Windows : AUTOEDIT (ffmpeg et Whisper sont inclus, Whisper utilise la carte graphique des Mac Apple Silicon), Premiere Pro (extension installée dans `~/Library/Application Support/Adobe/CEP/extensions`), Chrome (`/Applications/Google Chrome.app`) et ses profils. Le Chrome que Coffile pilote pour la messagerie se range réduit dans le Dock.
 
 ## Premier lancement
 
@@ -325,13 +337,30 @@ Les miniatures sont créées une seule fois, puis gardées en cache. L'aperçu a
 
 ## Mises à jour automatiques
 
-Coffile cherche une nouvelle version **à chaque lancement**, puis toutes les heures, et la télécharge en arrière-plan. Une fois téléchargée, il l'**installe tout seul**. La mise à jour est **obligatoire** : un compte à rebours de 15 s couvre tout l'écran (on peut seulement redémarrer tout de suite), puis Coffile se ferme, s'installe sans fenêtre et se relance sur la nouvelle version. Si Coffile est occupé (projet en cours de création, AUTOEDIT ouvert), il attend la fin pour ne rien perdre, puis installe. Fermer Coffile avant l'installe aussi.
+Pareil sur Windows et sur Mac : **à chaque lancement**, Coffile cherche une nouvelle version. S'il y en a une, un écran « Mise à jour » s'affiche pendant le téléchargement, puis Coffile l'installe et **redémarre tout seul** dessus. Au redémarrage, une fenêtre **Nouveautés** liste ce qui a été ajouté (toutes les versions installées depuis la dernière ouverture). Il n'y a rien à cliquer.
 
-Les versions sont publiées dans les **Releases GitHub** du dépôt `kimany91/Coffile`. Ce dépôt doit être **public** : sinon, les PC ne peuvent pas lire les mises à jour.
+Pendant l'utilisation, une recherche toutes les heures prépare déjà la version suivante, sans rien interrompre : elle s'installe au lancement suivant (ou tout de suite avec **Redémarrer maintenant**).
 
-Pour publier une nouvelle version, il suffit de changer `"version"` dans `package.json` (ex. 1.7.9) et de l'envoyer sur `main`. Le workflow `.github/workflows/build-windows.yml` le voit, compile l'installateur sur Windows (ffmpeg et whisper sont téléchargés depuis leurs versions officielles et vérifiés), puis publie la release `v1.7.9` (`Coffile-Setup-x.y.z.exe`, `.blockmap` et `latest.yml`). Une version déjà publiée n'est jamais refaite. Ensuite, tous les Coffile installés se mettent à jour tout seuls.
+- **Windows** : electron-updater installe la nouvelle version sans fenêtre.
+- **Mac** : Coffile télécharge le `.zip` de son processeur, vérifie son empreinte (SHA-512), puis remplace `Coffile.app` une fois fermé et le relance. Le système de mise à jour standard du Mac exige un compte développeur Apple payant : Coffile s'en passe. Coffile doit être dans un dossier où il peut se remplacer (Applications) et pas ouvert depuis le .dmg.
 
-Sans GitHub Actions, la même chose se fait depuis un PC avec un jeton GitHub : `GH_TOKEN=… npm run release`.
+Un journal des mises à jour est gardé dans le dossier de données de Coffile (`mises-a-jour.log`).
+
+Les versions sont publiées dans les **Releases GitHub** du dépôt `kimany91/Coffile`. Ce dépôt doit être **public** : sinon, les ordinateurs ne peuvent pas lire les mises à jour.
+
+### Publier une nouvelle version
+
+1. Ajoute les nouveautés en tête de `src/changelog.json` (c'est ce que Coffile affiche après la mise à jour).
+2. Change `"version"` dans `package.json` et envoie sur `main`.
+
+Le workflow `.github/workflows/release.yml` fait le reste :
+
+- il construit l'installateur Windows et les versions Mac (Apple Silicon et Intel, `.dmg` pour installer et `.zip` pour les mises à jour) ;
+- ffmpeg est téléchargé depuis sa version officielle (empreintes vérifiées) ; Whisper est téléchargé pour Windows et compilé depuis ses sources officielles pour Mac ;
+- il teste chaque version : les outils inclus se lancent, et une **vraie mise à jour automatique** est faite (Coffile installé, une version plus récente annoncée, Coffile doit se fermer, s'installer et se relancer) ;
+- si tout passe, il publie la version avec ses notes.
+
+Une version déjà publiée n'est jamais refaite, et rien n'est publié si un test échoue.
 
 ## Développement
 
@@ -341,12 +370,13 @@ npm start          # lance l'app
 npm run dist       # génère dist/Coffile-Setup-<version>.exe
 ```
 
-Pour compiler sous Linux ou macOS, il faut Wine (32 et 64 bits). Le plus simple reste le workflow GitHub Actions fourni, qui compile sur Windows.
+Pour compiler la version Windows sous Linux ou macOS, il faut Wine (32 et 64 bits) ; la version Mac se compile sur un Mac (`npm run dist:mac`, après avoir mis ffmpeg et whisper dans `vendor/ffmpeg-mac-*` et `vendor/whisper-mac-*`). Le plus simple reste le workflow GitHub Actions fourni, qui compile les deux.
 
 Structure :
 
 - `src/main.js` : fenêtre, réglages, IPC
-- `src/updater.js` : mises à jour automatiques (electron-updater + GitHub Releases)
+- `src/updater.js` : mises à jour automatiques au lancement (Windows : electron-updater ; Mac : `src/mac-updater.js`)
+- `src/changelog.json` : nouveautés de chaque version, affichées après une mise à jour
 - `src/google.js` : comptes Google (OAuth dans Chrome, jetons chiffrés)
 - `src/browser.js` : profils Chrome, import via Chrome (surveillance des Téléchargements, extraction des zip)
 - `src/media.js` : exports (détection, versions, lecture résolution/durée/codec des MP4/MOV)

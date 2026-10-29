@@ -5,6 +5,7 @@
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const os = require('os');
 const { spawn } = require('child_process');
 const { pipeline } = require('stream/promises');
 const { Transform } = require('stream');
@@ -14,6 +15,14 @@ const PARTIAL_RE = /\.(crdownload|part|partial|download|tmp|opdownload)$/i;
 const IGNORE_RE = /^(desktop\.ini|thumbs\.db|\.ds_store)$|^~\$|^\./i;
 
 function findChrome() {
+  if (process.platform === 'darwin') {
+    const rel = path.join('Google Chrome.app', 'Contents', 'MacOS', 'Google Chrome');
+    for (const base of ['/Applications', path.join(os.homedir(), 'Applications')]) {
+      const p = path.join(base, rel);
+      if (fs.existsSync(p)) return p;
+    }
+    return null;
+  }
   if (process.platform !== 'win32') return null;
   const bases = [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA].filter(Boolean);
   for (const b of bases) {
@@ -23,9 +32,16 @@ function findChrome() {
   return null;
 }
 
+// Dossier des données de Chrome (profils de l'utilisateur).
+function chromeUserData() {
+  if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'Google', 'Chrome');
+  return process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data') : null;
+}
+
 // Profils Chrome (sessions Google) lus depuis « Local State ».
 function listChromeProfiles() {
-  const base = process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data', 'Local State');
+  const dir = chromeUserData();
+  const base = dir && path.join(dir, 'Local State');
   if (!base || !fs.existsSync(base)) return [];
   try {
     const cache = JSON.parse(fs.readFileSync(base, 'utf8')).profile.info_cache || {};

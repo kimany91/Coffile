@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, net, nativeTheme, safeStorage, protocol, clipboard } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, net, nativeTheme, safeStorage, protocol, clipboard } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { ProjectJob, FOLDERS } = require('./project');
@@ -166,6 +166,27 @@ function loadSettings() {
   if (!settings.downloadsDir) settings.downloadsDir = app.getPath('downloads');
 }
 
+async function runSelftest(out) {
+  const { execFile } = require('child_process');
+  const tryRun = (exe, args) =>
+    new Promise((resolve) => {
+      if (!exe) return resolve({ ok: false, error: 'introuvable' });
+      execFile(exe, args, { timeout: 20000, windowsHide: true }, (err, stdout, stderr) => {
+        const text = `${stdout}${stderr}`;
+        resolve({ ok: !!text && !(err && err.code === 'ENOENT'), path: exe, out: text.split('\n').find(Boolean) || '', error: err && err.code === 'ENOENT' ? err.message : undefined });
+      });
+    });
+  const r = {
+    version: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    ffmpeg: await tryRun(autoedit.ffmpegPath(), ['-hide_banner', '-version']),
+    whisper: await tryRun(transcribe.enginePath ? transcribe.enginePath() : null, ['--help']),
+    changelog: require('./changelog.json').some((e) => e.version === app.getVersion())
+  };
+  fs.writeFileSync(out, JSON.stringify(r, null, 1));
+}
+
 function saveSettings() {
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
   const tmp = `${settingsPath}.tmp`;
@@ -187,7 +208,8 @@ function createWindow() {
     title: 'Coffile',
     icon: path.join(__dirname, 'renderer', 'assets', 'icon.png'),
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#0a0a0c', symbolColor: '#a1a1aa', height: 44 },
+    // Windows : boutons de la fenêtre dessinés par le système à droite ; Mac : les trois pastilles à gauche.
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 16, y: 15 } } : { titleBarOverlay: { color: '#0a0a0c', symbolColor: '#a1a1aa', height: 44 } }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -607,6 +629,24 @@ function registerIpc() {
   ipcMain.handle('project:reopenBrowser', () => currentJob && currentJob.reopenBrowser());
 
   ipcMain.handle('update:check', () => updater.check(true));
+  // Nouveautés à montrer après une mise à jour : les versions installées depuis la dernière ouverture.
+  ipcMain.handle('app:whatsNew', () => {
+    const semver = require('semver');
+    const cur = app.getVersion();
+    const last = settings.lastVersion;
+    let entries = [];
+    try {
+      const all = require('./changelog.json');
+      if (last && semver.valid(last) && semver.gt(cur, last)) entries = all.filter((e) => semver.gt(e.version, last) && semver.lte(e.version, cur));
+      // Mise à jour depuis une version qui ne notait pas encore sa version : celle-ci seulement.
+      else if (!last && settings.onboarded) entries = all.filter((e) => e.version === cur);
+    } catch {}
+    if (last !== cur) {
+      settings.lastVersion = cur;
+      saveSettings();
+    }
+    return { version: cur, entries };
+  });
   ipcMain.handle('update:state', () => updater.getState());
   ipcMain.handle('update:install', () => {
     if (currentJob) return false;
@@ -830,6 +870,14 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.setAppUserModelId('fr.filedit.app');
   app.whenReady().then(() => {
+    // Contrôle de l'app construite (workflow GitHub) : les outils inclus se lancent, puis on quitte.
+    const selftest = process.argv.find((a) => a.startsWith('--coffile-selftest='));
+    if (selftest) {
+      runSelftest(selftest.slice('--coffile-selftest='.length)).finally(() => app.exit(0));
+      return;
+    }
+    // Mac : menu de l'app (Copier / Coller, Cmd+Q, fenêtre) ; Windows n'en a pas.
+    if (process.platform === 'darwin') Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]));
     loadSettings();
     thumbs = new mediaServer.ThumbCache(path.join(app.getPath('userData'), 'thumbs'));
     autoedit.init(path.join(app.getPath('userData'), 'autoedit'));

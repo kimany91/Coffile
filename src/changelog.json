@@ -1,0 +1,26 @@
+[
+  {
+    "version": "1.7.11",
+    "items": [
+      "Mises à jour : plus de compte à rebours. À chaque lancement, Coffile cherche une nouvelle version, l'installe, redémarre tout seul et te montre ce qui a changé.",
+      "Coffile existe maintenant sur Mac (Apple Silicon et Intel), avec les mêmes fonctions et les mêmes mises à jour automatiques."
+    ]
+  },
+  {
+    "version": "1.7.10",
+    "items": [
+      "AUTOEDIT : la timeline ne devient plus noire et la tête de lecture ne se dédouble plus, même en zoomant.",
+      "AUTOEDIT : lecture « sans les blancs » fluide au classement, même sur les rushes longs ou en 4K : plus de pauses ni de retours en arrière.",
+      "AUTOEDIT : plus d'écran noir en ajoutant un overlay ou en changeant la fin.",
+      "AUTOEDIT : les rushes lourds (HEVC des iPhone, 4K, 60 i/s) reçoivent une copie légère, préparée en arrière-plan, pour un aperçu fluide."
+    ]
+  },
+  {
+    "version": "1.7.9",
+    "items": ["Les mises à jour sont obligatoires."]
+  },
+  {
+    "version": "1.7.8",
+    "items": ["AUTOEDIT : l'étape « Classer les rushes » est de retour (clic gauche : sans les blancs, clic droit : rush entier, flèches pour changer l'ordre)."]
+  }
+]

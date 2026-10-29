@@ -1,0 +1,340 @@
+# Construit Coffile pour Windows et pour Mac, teste les deux (outils inclus, vraie mise à jour
+# automatique), puis publie la version GitHub qui sert aux mises à jour. Tout est automatique : dès
+# que "version" change dans package.json sur main, la nouvelle version est construite et publiée.
+# Les notes de la version (src/changelog.json) s'affichent dans Coffile après la mise à jour.
+#
+# Une version déjà publiée n'est jamais refaite. Rien n'est publié si un test échoue.
+# ffmpeg et whisper ne sont pas dans le dépôt : téléchargés depuis leurs versions officielles
+# (empreintes vérifiées) ; whisper pour Mac est compilé depuis ses sources officielles.
+name: Coffile (Windows + Mac)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      exists: ${{ steps.v.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver=$(node -p "require('./package.json').version")
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "tag=v$ver" >> "$GITHUB_OUTPUT"
+          if gh release view "v$ver" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"; echo "La version v$ver est déjà publiée : rien à faire."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"; echo "Nouvelle version v$ver"
+          fi
+          # Les nouveautés de la version doivent être écrites (affichées après la mise à jour).
+          node -e "const c=require('./src/changelog.json'); if(!c.some(e=>e.version==='$ver')){console.error('Pas de notes pour $ver dans src/changelog.json'); process.exit(1)}"
+
+  windows:
+    needs: version
+    if: needs.version.outputs.exists != 'true'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: ffmpeg et whisper (versions officielles, empreintes vérifiées)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Check($file, $sha) {
+            $h = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+            if ($h -ne $sha) { throw "Empreinte inattendue pour $file : $h" }
+          }
+          $t = Join-Path $env:RUNNER_TEMP 'vendor'
+          New-Item -ItemType Directory -Force $t | Out-Null
+
+          # ffmpeg 6.0 statique (eugeneware/ffmpeg-static b6.0)
+          Invoke-WebRequest 'https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-win32-x64.gz' -OutFile "$t\ffmpeg.gz"
+          $in = [IO.File]::OpenRead("$t\ffmpeg.gz")
+          $gz = New-Object IO.Compression.GZipStream($in, [IO.Compression.CompressionMode]::Decompress)
+          $out = [IO.File]::Create('vendor\ffmpeg-win\ffmpeg.exe')
+          $gz.CopyTo($out); $out.Close(); $gz.Close(); $in.Close()
+          Check 'vendor\ffmpeg-win\ffmpeg.exe' 'e9fd5e711debab9d680955fc1e38a2c1160fd280b144476cc3f62bc43ef49db1'
+
+          # whisper.cpp v1.7.6 (Windows x64, CPU)
+          Invoke-WebRequest 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.6/whisper-bin-x64.zip' -OutFile "$t\whisper.zip"
+          Expand-Archive "$t\whisper.zip" -DestinationPath "$t\whisper" -Force
+          $want = @{
+            'whisper-cli.exe' = 'b7c6dc2e999a80bc2d23cd4c76701211f392ae55d5cabdf0d45eb2ca4faf09af'
+            'whisper.dll'     = 'bbeceed370799687a363244edc583bac3dc5d472f5bd14691a26f22c7e710bb8'
+            'ggml.dll'        = 'f91ef57cfd6d2f07a5fc33e5dca114b3dc3abe8495f47b46dfbe178d6d775c37'
+            'ggml-base.dll'   = 'e912e19071c32d673a81de4aab058d36328cc6b0c59c75889a0ba4c65fd6a4e6'
+            'ggml-cpu.dll'    = '341ed96e2520ef9b44509f18b5ac4f60d171e47a6c55ab390d704ea7b06ae617'
+          }
+          foreach ($f in $want.Keys) {
+            Copy-Item "$t\whisper\Release\$f" "vendor\whisper-win\$f"
+            Check "vendor\whisper-win\$f" $want[$f]
+          }
+
+      - name: Dépendances
+        run: npm ci
+
+      - name: Construire (installateur Windows)
+        run: npx electron-builder --win nsis --x64 --publish never
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Auto-test (ffmpeg, whisper, notes de version)
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'selftest.json'
+          $p = Start-Process 'dist\win-unpacked\Coffile.exe' -ArgumentList "--coffile-selftest=$out" -PassThru
+          $p.WaitForExit(60000) | Out-Null
+          if (-not (Test-Path $out)) { Write-Error "Auto-test : pas de résultat"; exit 1 }
+          $r = Get-Content $out -Raw | ConvertFrom-Json
+          Get-Content $out
+          if (-not ($r.ffmpeg.ok -and $r.whisper.ok -and $r.changelog)) { Write-Error 'Auto-test raté'; exit 1 }
+
+      - name: Test de mise à jour automatique (installée → nouvelle version → redémarrage)
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ver = '${{ needs.version.outputs.version }}'
+          $feed = Join-Path $env:RUNNER_TEMP 'feed'
+          New-Item -ItemType Directory -Force $feed | Out-Null
+          Copy-Item "dist\Coffile-Setup-$ver.exe", "dist\Coffile-Setup-$ver.exe.blockmap" $feed
+          $orig = Get-Content dist\latest.yml -Raw
+          # Version annoncée plus récente : Coffile doit la trouver au lancement et s'installer dessus.
+          ($orig -replace '(?m)^version: .*$', 'version: 99.0.0') | Set-Content -NoNewline (Join-Path $feed 'latest.yml')
+          $inst = Join-Path $env:RUNNER_TEMP 'CoffileApp'
+          Start-Process "dist\Coffile-Setup-$ver.exe" -ArgumentList '/S', "/D=$inst" -Wait
+          if (-not (Test-Path "$inst\Coffile.exe")) { Write-Error 'Installation ratée'; exit 1 }
+          $srv = Start-Process python -ArgumentList '-m', 'http.server', '8765', '--directory', $feed -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          $env:COFFILE_UPDATE_FEED = 'http://127.0.0.1:8765'
+          $old = Start-Process "$inst\Coffile.exe" -PassThru
+          $exited = $old.WaitForExit(180000)
+          # La version relancée lit le même flux : il annonce maintenant la version installée (pas de boucle).
+          Set-Content -NoNewline (Join-Path $feed 'latest.yml') $orig
+          if (-not $exited) { Write-Error "Coffile ne s'est pas fermé pour se mettre à jour"; exit 1 }
+          $new = $null
+          for ($i = 0; $i -lt 120 -and -not $new; $i++) {
+            Start-Sleep -Seconds 1
+            $new = Get-Process Coffile -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $old.Id } | Select-Object -First 1
+          }
+          Start-Sleep -Seconds 5
+          $log = Join-Path $env:APPDATA 'Coffile\mises-a-jour.log'
+          if (Test-Path $log) { Get-Content $log }
+          $starts = @(Select-String -Path $log -Pattern 'démarrage' -SimpleMatch).Count
+          $installed = [bool](Select-String -Path $log -Pattern 'installation de 99.0.0' -SimpleMatch -Quiet)
+          Get-Process Coffile -ErrorAction SilentlyContinue | Stop-Process -Force
+          Stop-Process -Id $srv.Id -Force -ErrorAction SilentlyContinue
+          if (-not $new -or $starts -lt 2 -or -not $installed) { Write-Error "Mise à jour ratée : relancé=$([bool]$new) démarrages=$starts installée=$installed"; exit 1 }
+          Write-Host "Mise à jour automatique OK : fermé, installé, relancé."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/Coffile-Setup-*.exe
+            dist/Coffile-Setup-*.exe.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+
+  mac:
+    needs: version
+    if: needs.version.outputs.exists != 'true'
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: ffmpeg pour Mac (version officielle, empreintes vérifiées)
+        run: |
+          set -e
+          check() { echo "$2  $1" | shasum -a 256 -c -; }
+          for a in arm64 x64; do
+            curl -sSLf -o "$RUNNER_TEMP/ff-$a.gz" "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-darwin-$a.gz"
+            gunzip -c "$RUNNER_TEMP/ff-$a.gz" > "vendor/ffmpeg-mac-$a/ffmpeg"
+            chmod +x "vendor/ffmpeg-mac-$a/ffmpeg"
+          done
+          check vendor/ffmpeg-mac-arm64/ffmpeg a90e3db6a3fd35f6074b013f948b1aa45b31c6375489d39e572bea3f18336584
+          check vendor/ffmpeg-mac-x64/ffmpeg cfe20936c83ecf5d68e424b87e8cc45b24dd6be81787810123bb964a0df686f9
+
+      - name: whisper pour Mac (compilé depuis les sources officielles v1.7.6)
+        run: |
+          set -e
+          W="$RUNNER_TEMP/whisper.cpp"
+          git clone --depth 1 -b v1.7.6 https://github.com/ggml-org/whisper.cpp "$W"
+          test "$(git -C "$W" rev-parse HEAD)" = a8d002cfd879315632a579e73f0148d06959de36
+          common="-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_SDL2=OFF"
+          # Apple Silicon : carte graphique (Metal) ; Intel : processeur (AVX2).
+          cmake -S "$W" -B "$W/build-arm64" $common -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON
+          cmake --build "$W/build-arm64" --config Release -j 4 --target whisper-cli
+          cmake -S "$W" -B "$W/build-x64" $common -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 -DGGML_METAL=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON
+          cmake --build "$W/build-x64" --config Release -j 4 --target whisper-cli
+          for a in arm64 x64; do
+            cp "$W/build-$a/bin/whisper-cli" "vendor/whisper-mac-$a/whisper-cli"
+            chmod +x "vendor/whisper-mac-$a/whisper-cli"
+            lipo -archs "vendor/whisper-mac-$a/whisper-cli"
+            otool -L "vendor/whisper-mac-$a/whisper-cli"
+          done
+          # Aucune bibliothèque à côté : seulement celles du système.
+          ! otool -L vendor/whisper-mac-*/whisper-cli | grep -E '@rpath|/usr/local|/opt/homebrew'
+          vendor/whisper-mac-arm64/whisper-cli --help 2>&1 | head -3
+
+      - name: Dépendances
+        run: npm ci
+
+      - name: Construire (Mac Apple Silicon et Intel)
+        run: npx electron-builder --mac --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Vérifier les fichiers
+        run: |
+          set -e
+          ls -la dist
+          cat dist/latest-mac.yml
+          ver='${{ needs.version.outputs.version }}'
+          for a in arm64 x64; do
+            test -f "dist/Coffile-$ver-mac-$a.dmg"
+            test -f "dist/Coffile-$ver-mac-$a.zip"
+            grep -q "Coffile-$ver-mac-$a.zip" dist/latest-mac.yml
+          done
+          codesign --verify --deep --strict dist/mac-arm64/Coffile.app
+          codesign --verify --deep --strict dist/mac/Coffile.app
+          lipo -archs dist/mac-arm64/Coffile.app/Contents/Resources/ffmpeg/ffmpeg | grep -q arm64
+          lipo -archs dist/mac/Coffile.app/Contents/Resources/whisper/whisper-cli | grep -q x86_64
+
+      - name: Auto-test (Apple Silicon et Intel)
+        run: |
+          set -e
+          softwareupdate --install-rosetta --agree-to-license >/dev/null 2>&1 || true
+          for d in mac-arm64 mac; do
+            out="$RUNNER_TEMP/selftest-$d.json"
+            "dist/$d/Coffile.app/Contents/MacOS/Coffile" "--coffile-selftest=$out" &
+            pid=$!
+            for i in $(seq 1 60); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+            kill $pid 2>/dev/null || true
+            cat "$out"
+            node -e "const r=require('$out'); if(!(r.ffmpeg.ok&&r.whisper.ok&&r.changelog)) process.exit(1)"
+          done
+
+      - name: Test de mise à jour automatique (installée → nouvelle version → redémarrage)
+        timeout-minutes: 10
+        run: |
+          set -e
+          ver='${{ needs.version.outputs.version }}'
+          APPS="$RUNNER_TEMP/Applications"
+          mkdir -p "$APPS"
+          ditto -x -k "dist/Coffile-$ver-mac-arm64.zip" "$APPS"
+          # Repère sur l'app installée : il disparaît quand la nouvelle version la remplace.
+          xattr -w fr.coffile.test ancienne "$APPS/Coffile.app"
+          FEED="$RUNNER_TEMP/feed"
+          mkdir -p "$FEED"
+          cp dist/Coffile-$ver-mac-*.zip "$FEED/"
+          sed 's/^version: .*/version: 99.0.0/' dist/latest-mac.yml > "$FEED/latest-mac.yml"
+          python3 -m http.server 8765 --directory "$FEED" >/dev/null 2>&1 &
+          SRV=$!
+          sleep 2
+          LOG="$HOME/Library/Application Support/Coffile/mises-a-jour.log"
+          COFFILE_UPDATE_FEED=http://127.0.0.1:8765 "$APPS/Coffile.app/Contents/MacOS/Coffile" >/dev/null 2>&1 &
+          OLD=$!
+          for i in $(seq 1 180); do kill -0 $OLD 2>/dev/null || break; sleep 1; done
+          if kill -0 $OLD 2>/dev/null; then echo "Coffile ne s'est pas fermé pour se mettre à jour"; cat "$LOG"; exit 1; fi
+          replaced=no
+          for i in $(seq 1 60); do
+            if [ -d "$APPS/Coffile.app" ] && ! xattr -p fr.coffile.test "$APPS/Coffile.app" >/dev/null 2>&1; then replaced=yes; break; fi
+            sleep 1
+          done
+          relaunched=no
+          for i in $(seq 1 60); do
+            if pgrep -f "$APPS/Coffile.app/Contents/MacOS/Coffile" >/dev/null; then relaunched=yes; break; fi
+            sleep 1
+          done
+          sleep 5
+          cat "$LOG"
+          starts=$(grep -c 'démarrage' "$LOG" || true)
+          pkill -f "$APPS/Coffile.app/Contents/MacOS/Coffile" || true
+          kill $SRV || true
+          codesign --verify --deep --strict "$APPS/Coffile.app"
+          if [ "$replaced" != yes ] || [ "$relaunched" != yes ] || [ "$starts" -lt 2 ] || ! grep -q 'remplacé' "$LOG"; then
+            echo "Mise à jour ratée : remplacée=$replaced relancée=$relaunched démarrages=$starts"; exit 1
+          fi
+          echo "Mise à jour automatique OK : fermé, remplacé, relancé."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: |
+            dist/Coffile-*-mac-*.dmg
+            dist/Coffile-*-mac-*.zip
+            dist/Coffile-*-mac-*.blockmap
+            dist/latest-mac.yml
+          if-no-files-found: error
+
+  publish:
+    needs: [version, windows, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Notes de la version
+        run: |
+          node -e "
+            const ver = require('./package.json').version;
+            const e = require('./src/changelog.json').find((x) => x.version === ver);
+            const lines = [
+              '## Nouveautés', '', ...e.items.map((i) => '- ' + i), '',
+              '## Installer', '',
+              '- **Windows** : Coffile-Setup-' + ver + '.exe',
+              '- **Mac Apple Silicon** (M1, M2, M3, M4…) : Coffile-' + ver + '-mac-arm64.dmg',
+              '- **Mac Intel** : Coffile-' + ver + '-mac-x64.dmg', '',
+              'Sur Mac, ouvre le .dmg et glisse Coffile dans **Applications**. La première fois, macOS demande une confirmation (app hors App Store) : ouvre Coffile, puis **Réglages Système › Confidentialité et sécurité › Ouvrir quand même**.', '',
+              'Une fois installé, Coffile se met à jour tout seul à chaque lancement, sur Windows comme sur Mac.'
+            ];
+            require('fs').writeFileSync('notes.md', lines.join('\n'));
+          "
+          cat notes.md
+          ls -la release
+      - name: Publier
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ needs.version.outputs.tag }}' release/* --repo "$GITHUB_REPOSITORY" --title 'Coffile ${{ needs.version.outputs.version }}' --notes-file notes.md --target "$GITHUB_SHA" --latest
+      - name: Vérifier ce que lisent les Coffile installés
+        run: |
+          set -e
+          ver='${{ needs.version.outputs.version }}'
+          for f in latest.yml latest-mac.yml; do
+            v=$(curl -sSLf "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/$f" | sed -n 's/^version: //p')
+            echo "$f → $v"
+            test "$v" = "$ver"
+          done

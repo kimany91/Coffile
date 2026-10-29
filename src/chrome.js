@@ -236,6 +236,11 @@ class ChromeSession {
     const cdp = await this.context.newCDPSession(page);
     try {
       const { windowId } = await cdp.send('Browser.getWindowForTarget');
+      // Mac : une fenêtre ne peut pas sortir de l'écran, elle est réduite dans le Dock à la place.
+      if (bounds === OFFSCREEN && process.platform === 'darwin') {
+        await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
+        return;
+      }
       await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } });
       await cdp.send('Browser.setWindowBounds', { windowId, bounds });
     } finally {

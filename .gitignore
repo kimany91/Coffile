@@ -6,3 +6,5 @@ captures/
 vendor/ffmpeg-win/ffmpeg.exe
 vendor/whisper-win/*.exe
 vendor/whisper-win/*.dll
+vendor/ffmpeg-mac-*/ffmpeg
+vendor/whisper-mac-*/whisper-cli

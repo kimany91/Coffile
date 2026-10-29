@@ -2863,69 +2863,31 @@ function downloadAllFromMessage(btn, addTo = null) {
 
 
 // ---------- Mises à jour ----------
-// Installation obligatoire : une version téléchargée s'installe dès que Coffile n'est pas occupé
-// (création de projet, AUTOEDIT ouvert). Compte à rebours de 15 s sur tout l'écran, sans « Plus tard ».
-const autoInstall = { timer: null, wait: null, left: 0 };
-const busyForUpdate = () => !!(state.jobRunning || (window.AutoEdit && AutoEdit.isOpen()));
-
-function scheduleAutoInstall() {
-  const u = state.update;
-  if (!u || u.status !== 'ready' || autoInstall.timer) return;
-  clearTimeout(autoInstall.wait);
-  if (busyForUpdate()) {
-    autoInstall.wait = setTimeout(scheduleAutoInstall, 15000);
-    return;
-  }
-  autoInstall.left = 15;
-  autoInstall.timer = setInterval(() => {
-    if (busyForUpdate()) {
-      stopAutoInstall();
-      autoInstall.wait = setTimeout(scheduleAutoInstall, 15000);
-      return;
-    }
-    autoInstall.left--;
-    if (autoInstall.left <= 0) {
-      stopAutoInstall();
-      api.installUpdate();
-      return;
-    }
-    renderUpdate();
-  }, 1000);
-  renderUpdate();
-}
-
-function stopAutoInstall() {
-  clearInterval(autoInstall.timer);
-  autoInstall.timer = null;
-  renderUpdate();
-}
-
+// Au lancement, une nouvelle version s'installe toute seule : un écran l'indique pendant le
+// téléchargement, puis Coffile redémarre dessus. Trouvée en cours d'utilisation, elle attend le
+// prochain lancement (rien n'est interrompu).
 function renderUpdate() {
   const u = state.update || { status: 'idle', version: state.settings.version };
   const v = state.settings.version;
   const ver = $('#version');
   ver.innerHTML = `Version ${esc(v)}${u.status === 'latest' ? ' · à jour' : ''}`;
 
-  const card = $('#update-card');
-  if (u.status === 'ready' || u.status === 'downloading') {
-    card.classList.remove('hidden');
-    const auto = autoInstall.timer ? autoInstall.left : null;
-    setHTML(
-      card,
-      u.status === 'ready'
-        ? auto != null
-          ? `<div class="uc-head">${icon('sparkles')}Version ${esc(u.available)}</div><div class="uc-sub">Coffile redémarre dans <b>${auto} s</b> pour l'installer.</div>`
-          : `<div class="uc-head">${icon('sparkles')}Version ${esc(u.available)} prête</div><div class="uc-sub">Elle s'installe dès que Coffile a fini ce qu'il fait.</div><button class="btn primary sm" id="uc-install">Redémarrer et installer</button>`
-        : `<div class="uc-head">${icon('download')}Mise à jour ${esc(u.available || '')}</div><div class="bar small"><div class="bar-fill" style="width:${u.percent || 0}%"></div></div><div class="uc-sub">Téléchargement… ${u.percent || 0}%</div>`
-    );
-  } else card.classList.add('hidden');
-
-  // Pendant le compte à rebours, tout l'écran est bloqué : la mise à jour est obligatoire.
   const lock = $('#update-lock');
-  if (autoInstall.timer) {
-    setHTML(lock, `<div class="modal ul-modal"><div class="modal-glow"></div><img src="assets/icon.png" class="modal-logo" alt="" /><h2>Mise à jour ${esc(u.available || '')}</h2><p class="lead">Coffile redémarre dans <b>${autoInstall.left} s</b> pour installer la nouvelle version, puis se relance tout seul.</p><div class="bar small"><div class="bar-fill" style="width:${Math.round(((15 - autoInstall.left) / 15) * 100)}%"></div></div><button class="btn primary" id="uc-install">${icon('refresh')}Redémarrer maintenant</button></div>`);
+  const atLaunch = u.launch && ['downloading', 'ready', 'installing'].includes(u.status);
+  if (atLaunch) {
+    const pct = u.status === 'downloading' ? u.percent || 0 : 100;
+    setHTML(
+      lock,
+      `<div class="modal ul-modal"><div class="modal-glow"></div><img src="assets/icon.png" class="modal-logo" alt="" /><h2>Mise à jour ${esc(u.available || '')}</h2><p class="lead">${u.status === 'downloading' ? `Téléchargement de la nouvelle version… <b>${pct} %</b>` : 'Installation… Coffile redémarre tout seul.'}</p><div class="bar small"><div class="bar-fill ${u.status === 'downloading' ? '' : 'indet'}" style="width:${pct}%"></div></div></div>`
+    );
     lock.classList.remove('hidden');
   } else lock.classList.add('hidden');
+
+  const card = $('#update-card');
+  if (!atLaunch && u.status === 'ready') {
+    card.classList.remove('hidden');
+    setHTML(card, `<div class="uc-head">${icon('sparkles')}Version ${esc(u.available)} prête</div><div class="uc-sub">Elle s'installera au prochain lancement de Coffile.</div><button class="btn sm" id="uc-install">Redémarrer maintenant</button>`);
+  } else card.classList.add('hidden');
 
   const box = $('#update-box');
   const acts = $('#update-actions');
@@ -2945,7 +2907,10 @@ function renderUpdate() {
       html = `<div class="ub">${icon('download')}<span>Téléchargement de la version ${esc(u.available)}… ${u.percent || 0}%</span></div><div class="bar small"><div class="bar-fill" style="width:${u.percent || 0}%"></div></div>`;
       break;
     case 'ready':
-      html = `<div class="ub ok">${icon('sparkles')}<span>La version ${esc(u.available)} est prête. Elle s'installera au redémarrage de Coffile.</span></div>`;
+      html = `<div class="ub ok">${icon('sparkles')}<span>La version ${esc(u.available)} est prête. Elle s'installera au prochain lancement de Coffile.</span></div>`;
+      break;
+    case 'installing':
+      html = `<div class="ub"><span class="spinner"></span><span>Installation de la version ${esc(u.available)}…</span></div>`;
       break;
     case 'error':
       html = `<div class="ub err">${icon('alert')}<span>${esc(u.error || 'Erreur de mise à jour')}</span></div>`;
@@ -2960,6 +2925,23 @@ function renderUpdate() {
       ? `<button class="btn primary" id="up-install">${icon('refresh')}Redémarrer et installer</button>`
       : `<button class="btn" id="up-check" ${['checking', 'downloading', 'dev'].includes(u.status) ? 'disabled' : ''}>${icon('refresh')}Rechercher</button>`
   );
+}
+
+// Après une mise à jour : ce qui a été ajouté (versions installées depuis la dernière ouverture).
+async function showWhatsNew() {
+  const wn = await api.whatsNew();
+  if (!wn || !wn.entries || !wn.entries.length) return;
+  const el = $('#whats-new');
+  setHTML(
+    el,
+    `<div class="modal wn-modal"><div class="modal-glow"></div><img src="assets/icon.png" class="modal-logo" alt="" /><div class="eyebrow">Mise à jour installée</div><h2>Nouveautés de Coffile ${esc(wn.version)}</h2>
+      <div class="wn-list">${wn.entries
+        .map((e) => `<div class="wn-ver">${wn.entries.length > 1 ? `<b>Version ${esc(e.version)}</b>` : ''}<ul>${e.items.map((it) => `<li>${esc(it)}</li>`).join('')}</ul></div>`)
+        .join('')}</div>
+      <div class="modal-actions"><span></span><button class="btn primary" id="wn-ok">${icon('check')}C'est parti</button></div></div>`
+  );
+  el.classList.remove('hidden');
+  $('#wn-ok').onclick = () => el.classList.add('hidden');
 }
 
 async function installUpdate() {
@@ -3599,14 +3581,10 @@ function bind() {
   };
 
   api.onUpdate((u) => {
-    const wasReady = state.update && state.update.status === 'ready';
     state.update = u;
     renderUpdate();
-    if (u.status === 'ready' && !wasReady) {
-      toast(`Mise à jour ${u.available} téléchargée : Coffile va l'installer tout seul.`);
-      scheduleAutoInstall();
-    }
   });
+  showWhatsNew();
 
   api.onJobUpdate((s) => {
     state.job = s;
@@ -3617,6 +3595,7 @@ function bind() {
 async function init() {
   hydrateIcons();
   state.settings = await api.getSettings();
+  document.body.classList.toggle('mac', state.settings.platform === 'darwin');
   state.update = await api.updateState();
   state.account = state.settings.defaultAccount || '';
   bind();

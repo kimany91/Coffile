@@ -1,14 +1,15 @@
 {
   "name": "filedit",
   "productName": "Coffile",
-  "version": "1.7.10",
+  "version": "1.7.11",
   "description": "Coffile – préparation automatique de projets de montage",
   "author": "Coffile",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis --x64 --publish never",
-    "release": "electron-builder --win nsis --x64 --publish always"
+    "release": "electron-builder --win nsis --x64 --publish always",
+    "dist:mac": "electron-builder --mac --publish never"
   },
   "build": {
     "appId": "fr.filedit.app",
@@ -79,7 +80,55 @@
     ],
     "asarUnpack": [
       "node_modules/playwright-core/**"
-    ]
+    ],
+    "afterPack": "build/after-pack.js",
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.video",
+      "icon": "build/icon.png",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "artifactName": "Coffile-${version}-mac-${arch}.${ext}",
+      "extraResources": [
+        {
+          "from": "vendor/ffmpeg-mac-${arch}",
+          "to": "ffmpeg",
+          "filter": [
+            "ffmpeg",
+            "README.txt",
+            "LICENSE"
+          ]
+        },
+        {
+          "from": "vendor/whisper-mac-${arch}",
+          "to": "whisper",
+          "filter": [
+            "whisper-cli",
+            "README.txt"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "Coffile ${version}",
+      "artifactName": "Coffile-${version}-mac-${arch}.${ext}"
+    }
   },
   "devDependencies": {
     "electron": "33.2.1",

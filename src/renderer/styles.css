@@ -92,6 +92,10 @@ code { font-family: var(--mono); font-size: 12px; background: var(--panel-3); pa
   border-bottom: 1px solid var(--line);
   background: var(--bg);
 }
+/* Mac : place pour les trois pastilles de la fenêtre, en haut à gauche. */
+body.mac .titlebar { padding-left: 86px; }
+body.mac .ae-head { padding-left: 90px; -webkit-app-region: drag; }
+body.mac .ae-head button, body.mac .ae-head a { -webkit-app-region: no-drag; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-logo { width: 22px; height: 22px; border-radius: 6px; }
 .brand-name { font-weight: 750; letter-spacing: -0.01em; font-size: 15px; }
@@ -1839,6 +1843,13 @@ b.deadline.dl-late { color: #fca5a5; }
 .ul-modal .bar { width: 100%; position: relative; }
 .ul-modal .bar-fill { transition: width 1s linear; }
 .ul-modal .btn { position: relative; }
+#whats-new { z-index: 290; }
+.wn-modal { width: min(560px, calc(100vw - 40px)); }
+.wn-modal h2 { margin: 4px 0 0; }
+.wn-list { position: relative; margin-top: 16px; max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.wn-ver b { display: block; font-size: 13px; margin-bottom: 6px; color: var(--accent-2); }
+.wn-ver ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.wn-ver li { font-size: 14px; line-height: 1.5; color: var(--text); }
 
 /* Onglet AUTOEDIT : dossier de rushes du PC */
 .aeh { display: flex; flex-direction: column; gap: 18px; }

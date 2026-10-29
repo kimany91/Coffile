@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('filedit', {
   thumbLookup: (items) => ipcRenderer.invoke('thumb:lookup', items),
   thumbSave: (key, bytes) => ipcRenderer.invoke('thumb:save', key, bytes),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
+  whatsNew: () => ipcRenderer.invoke('app:whatsNew'),
   updateState: () => ipcRenderer.invoke('update:state'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
   onUpdate: (cb) => {
