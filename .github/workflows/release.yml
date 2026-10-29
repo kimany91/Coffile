@@ -119,43 +119,47 @@ jobs:
         timeout-minutes: 10
         run: |
           $ver = '${{ needs.version.outputs.version }}'
+          $log = Join-Path $env:APPDATA 'Coffile\mises-a-jour.log'
+          # Échec : diagnostic lisible dans les annotations du workflow.
+          function Fail($msg) {
+            $j = if (Test-Path $log) { (Get-Content $log | Select-Object -Last 40) -join '%0A' } else { 'pas de journal' }
+            $e = if (Test-Path "$env:RUNNER_TEMP\app-err.txt") { (Get-Content "$env:RUNNER_TEMP\app-err.txt" | Select-Object -Last 15) -join '%0A' } else { '' }
+            $procs = (Get-Process | Where-Object { $_.ProcessName -like 'Coffile*' } | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', '
+            Write-Host "::error title=Windows::$msg%0Aprocessus : $procs%0A$j"
+            if ($e) { Write-Host "::error title=Windows sortie::$e" }
+            Get-Process | Where-Object { $_.ProcessName -like 'Coffile*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+            exit 1
+          }
           $feed = Join-Path $env:RUNNER_TEMP 'feed'
           New-Item -ItemType Directory -Force $feed | Out-Null
           Copy-Item "dist\Coffile-Setup-$ver.exe", "dist\Coffile-Setup-$ver.exe.blockmap" $feed
           $orig = Get-Content dist\latest.yml -Raw
           # Version annoncée plus récente : Coffile doit la trouver au lancement et s'installer dessus.
-          ($orig -replace '(?m)^version: .*$', 'version: 99.0.0') | Set-Content -NoNewline (Join-Path $feed 'latest.yml')
+          Set-Content -NoNewline -Path (Join-Path $feed 'latest.yml') -Value ($orig -replace '(?m)^version: .*$', 'version: 99.0.0')
           $inst = Join-Path $env:RUNNER_TEMP 'CoffileApp'
           Start-Process "dist\Coffile-Setup-$ver.exe" -ArgumentList '/S', "/D=$inst" -Wait
-          if (-not (Test-Path "$inst\Coffile.exe")) { Write-Error 'Installation ratée'; exit 1 }
+          if (-not (Test-Path "$inst\Coffile.exe")) { Fail 'Installation ratée' }
           $srv = Start-Process python -ArgumentList '-m', 'http.server', '8765', '--directory', $feed -PassThru -WindowStyle Hidden
           Start-Sleep -Seconds 2
+          try { Invoke-WebRequest 'http://127.0.0.1:8765/latest.yml' -UseBasicParsing | Out-Null } catch { Fail "Flux local injoignable : $_" }
           $env:COFFILE_UPDATE_FEED = 'http://127.0.0.1:8765'
           $old = Start-Process "$inst\Coffile.exe" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\app-out.txt" -RedirectStandardError "$env:RUNNER_TEMP\app-err.txt"
           $exited = $old.WaitForExit(180000)
           # La version relancée lit le même flux : il annonce maintenant la version installée (pas de boucle).
-          Set-Content -NoNewline (Join-Path $feed 'latest.yml') $orig
-          if (-not $exited) { Write-Error "Coffile ne s'est pas fermé pour se mettre à jour"; exit 1 }
+          Set-Content -NoNewline -Path (Join-Path $feed 'latest.yml') -Value $orig
+          if (-not $exited) { Fail "Coffile ne s'est pas fermé pour se mettre à jour" }
           $new = $null
           for ($i = 0; $i -lt 120 -and -not $new; $i++) {
             Start-Sleep -Seconds 1
             $new = Get-Process Coffile -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $old.Id } | Select-Object -First 1
           }
           Start-Sleep -Seconds 5
-          $log = Join-Path $env:APPDATA 'Coffile\mises-a-jour.log'
           if (Test-Path $log) { Get-Content $log }
-          $starts = @(Select-String -Path $log -Pattern 'démarrage' -SimpleMatch).Count
-          $installed = [bool](Select-String -Path $log -Pattern 'installation de 99.0.0' -SimpleMatch -Quiet)
-          Get-Process Coffile -ErrorAction SilentlyContinue | Stop-Process -Force
+          $starts = if (Test-Path $log) { @(Select-String -Path $log -Pattern 'démarrage' -SimpleMatch).Count } else { 0 }
+          $installed = (Test-Path $log) -and [bool](Select-String -Path $log -Pattern 'installation de 99.0.0' -SimpleMatch -Quiet)
           Stop-Process -Id $srv.Id -Force -ErrorAction SilentlyContinue
-          if (-not $new -or $starts -lt 2 -or -not $installed) {
-            # Diagnostic lisible dans les annotations du workflow.
-            $j = if (Test-Path $log) { (Get-Content $log | Select-Object -Last 40) -join '%0A' } else { 'pas de journal' }
-            $e = if (Test-Path "$env:RUNNER_TEMP\app-err.txt") { (Get-Content "$env:RUNNER_TEMP\app-err.txt" | Select-Object -Last 15) -join '%0A' } else { '' }
-            Write-Host "::error title=Windows journal::fermé=$exited relancé=$([bool]$new) démarrages=$starts installée=$installed%0A$j"
-            Write-Host "::error title=Windows sortie::$e"
-            exit 1
-          }
+          if (-not $new -or $starts -lt 2 -or -not $installed) { Fail "Mise à jour ratée : relancé=$([bool]$new) démarrages=$starts installée=$installed" }
+          Get-Process Coffile -ErrorAction SilentlyContinue | Stop-Process -Force
           Write-Host "Mise à jour automatique OK : fermé, installé, relancé."
 
       - uses: actions/upload-artifact@v4
