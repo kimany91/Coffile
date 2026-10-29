@@ -694,6 +694,28 @@ function registerIpc() {
       return { ok: false, error: e.message };
     }
   });
+  // Vignettes des vidéos : deux à la fois, les autres attendent leur tour.
+  const thumbQueue = [];
+  let thumbRunning = 0;
+  const nextThumb = () => {
+    while (thumbRunning < 2 && thumbQueue.length) {
+      const { file, resolve } = thumbQueue.shift();
+      thumbRunning++;
+      autoedit
+        .thumbnail(file)
+        .then((out) => resolve({ ok: true, path: out }), (e) => resolve({ ok: false, error: e.message }))
+        .finally(() => {
+          thumbRunning--;
+          nextThumb();
+        });
+    }
+  };
+  ipcMain.handle('autoedit:thumb', (_e, file) =>
+    new Promise((resolve) => {
+      thumbQueue.push({ file, resolve });
+      nextThumb();
+    })
+  );
   ipcMain.handle('autoedit:save', async (_e, dir, data) => {
     try {
       await autoedit.saveState(dir, data);

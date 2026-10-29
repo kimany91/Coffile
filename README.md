@@ -135,7 +135,7 @@ Pistes de la séquence :
 
 **La première fois** : l'extension est installée au démarrage de Coffile. Si Premiere était déjà ouvert, Coffile te demande de le **fermer et le rouvrir une fois** pour qu'elle se charge. Le panneau **Fenêtre › Extensions › Coffile** montre l'état et permet de **Refaire le dernier montage**. Si Premiere n'est pas trouvé, **Où est Premiere ?** permet de le choisir une fois pour toutes.
 
-Les formats que l'aperçu ne lit pas (ProRes, DNxHD, MXF…) passent par une copie légère en 540p, faite une seule fois et utilisée seulement pour l'aperçu. Premiere reçoit toujours les fichiers d'origine. AUTOEDIT utilise **ffmpeg** et **Whisper**, fournis avec Coffile : rien à installer, tout reste sur ton PC.
+Les rushes lourds (HEVC des iPhone, 4K, 60 i/s) et les formats que l'aperçu ne lit pas (ProRes, DNxHD, MXF…) reçoivent une **copie légère** (960 px, sauts rapides), faite en arrière-plan une seule fois, en commençant par le rush que tu regardes. En attendant, l'original est lu ; dès que la copie est prête, l'aperçu passe dessus sans s'arrêter. Premiere reçoit toujours les fichiers d'origine. Au classement, la lecture sans les blancs utilise deux lecteurs qui se relaient : le passage suivant est déjà prêt, donc pas de pause ni de retour en arrière. AUTOEDIT utilise **ffmpeg** et **Whisper**, fournis avec Coffile : rien à installer, tout reste sur ton PC.
 
 ## Le lien Google Drive
 

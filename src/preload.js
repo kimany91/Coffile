@@ -76,6 +76,7 @@ contextBridge.exposeInMainWorld('filedit', {
   autoeditAnalyze: (files) => ipcRenderer.invoke('autoedit:analyze', files),
   autoeditCancel: () => ipcRenderer.invoke('autoedit:cancel'),
   autoeditProxy: (file, duration) => ipcRenderer.invoke('autoedit:proxy', file, duration),
+  autoeditThumb: (file) => ipcRenderer.invoke('autoedit:thumb', file),
   autoeditSave: (dir, data) => ipcRenderer.invoke('autoedit:save', dir, data),
   autoeditSfxDir: () => ipcRenderer.invoke('autoedit:sfxDir'),
   autoeditExport: (payload) => ipcRenderer.invoke('autoedit:export', payload),

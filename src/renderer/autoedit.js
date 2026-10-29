@@ -123,8 +123,7 @@
     api.autoeditCancel();
     api.subsCancel();
     player.pause();
-    const v = $('#ae-rank-video');
-    if (v) v.pause();
+    releaseVideos();
     sfxPreview.pause();
     root().classList.add('hidden');
     document.body.classList.remove('ae-open');
@@ -176,6 +175,9 @@
     if (m.error) it.error = m.error;
     if (m.progress != null) it.progress = m.progress;
     if (m.proxyProgress != null) it.proxyProgress = m.proxyProgress;
+    if (m.probe) warmProxies();
+    // Avancement d'un aperçu léger seul : rien à redessiner (le message d'attente a son minuteur).
+    if (m.proxyProgress != null && !m.probe && !m.env && !m.error && m.progress == null) return;
     if (ae.step === 'rank') updateCard(m.path);
     else if (ae.step === 'edit' && (ae.ranks.includes(m.path) || (ae.ending && ae.ending.path === m.path))) {
       if (m.proxyProgress != null) stageMsg();
@@ -490,6 +492,7 @@
     const idx = steps.findIndex((s) => s[0] === ae.step);
     $('#ae-steps').innerHTML = steps.map(([k, n, label], i) => `<span class="ae-step ${k === ae.step ? 'on' : i < idx ? 'past' : ''}"><i>${i < idx ? icon('check') : n}</i>${label}</span>`).join('<span class="ae-step-sep"></span>');
     player.detach();
+    releaseVideos();
     if (ae.step === 'rank') renderRank();
     else if (ae.step === 'edit') renderEdit();
     else renderDone();
@@ -514,7 +517,7 @@
   const allFiles = () => [...ae.media.rushes, ...ae.media.images, ...(ae.media.templates || [])];
   // Vignette d'un fichier (vidéo : 1re image ; modèle animé : pastille, il ne se lit que dans Premiere).
   function mediaThumb(f) {
-    if (f.kind === 'video') return `<video muted preload="metadata" src="${esc(srcOf(f.path))}#t=0.6"></video>`;
+    if (f.kind === 'video') return vthumbImg(f.path);
     if (f.kind === 'image') return `<img src="${esc(mediaUrl(f.path))}" loading="lazy" alt="" />`;
     return `<div class="ae-mogrt-thumb">${icon('layers')}<span>.mogrt</span></div>`;
   }
@@ -530,7 +533,7 @@
     const st = rushStatus(r.path);
     const d = info(r.path).probe && info(r.path).probe.duration;
     return `<div class="ae-card ${rankSel === r.path ? 'sel' : ''} ${n ? 'ranked' : ''}" data-ae-pick="${esc(r.path)}">
-      <div class="ae-thumb"><video muted preload="none" data-thumb="${esc(srcOf(r.path))}"></video><span class="ae-thumb-ico">${icon('film')}</span>${d ? `<span class="ae-dur">${C.fmtTime(d)}</span>` : ''}</div>
+      <div class="ae-thumb ${vthumbUrl.has(r.path) ? 'ready' : ''}">${vthumbImg(r.path)}<span class="ae-thumb-ico">${icon('film')}</span>${d ? `<span class="ae-dur">${C.fmtTime(d)}</span>` : ''}</div>
       <div class="ae-card-text"><b title="${esc(r.name)}">${esc(r.name)}</b><span>${esc(r.rel.join(' › ') || 'RUSHES')}</span><em class="${st.cls}">${ae.ending && ae.ending.path === r.path ? '<i class="ae-tag">Fin du montage</i>' : isEndingCandidate(r.path) ? '<i class="ae-tag">Fin possible</i>' : ''}${esc(st.text)}</em></div>
       <div class="ae-rank-col">
         ${n ? `<button class="ae-move" data-ae-move="-1" data-path="${esc(r.path)}" title="Plus tôt dans le montage" ${n === 1 ? 'disabled' : ''}>▲</button>` : ''}
@@ -546,7 +549,7 @@
     $('#ae-body').innerHTML = list.length
       ? `<div class="ae-rank">
         <div class="ae-viewer">
-          <div class="ae-screen"><video id="ae-rank-video" controls playsinline></video><div class="ae-screen-msg hidden" id="ae-rank-msg"></div></div>
+          <div class="ae-screen" id="ae-screen"><video class="ae-rv on" controls playsinline preload="auto"></video><video class="ae-rv" controls playsinline preload="auto" muted></video><div class="ae-screen-msg hidden" id="ae-rank-msg"></div></div>
           <div class="ae-viewer-bar" id="ae-viewer-bar"></div>
           <p class="ae-help">${icon('sparkles')}<span>Regarde tes rushes et classe-les dans l'ordre du montage : <b>1, 2, 3…</b> Clique sur le <b>+</b> d'une carte, ou sur <b>Classer et suivant</b> (touche <kbd>Entrée</kbd>). Les rushes non classés ne sont pas utilisés. <b>Clic gauche</b> sur un rush : lecture sans les blancs · <b>clic droit</b> : le rush entier.</span></p>
         </div>
@@ -558,7 +561,10 @@
       : `<div class="ae-empty">${icon('film')}<b>Aucune vidéo dans RUSHES</b><span>AUTOEDIT monte les vidéos du dossier RUSHES du projet.</span><button class="btn" data-ae-act="open-dir">${icon('folderOpen')}Ouvrir le dossier du projet</button></div>`;
     renderRankFoot();
     watchThumbs();
+    cancelAnimationFrame(rv.raf);
+    rv.raf = requestAnimationFrame(rankTick);
     if (rankSel) selectRush(rankSel, false);
+    warmProxies();
   }
 
   function renderRankFoot() {
@@ -579,10 +585,8 @@
     // Garde la vignette déjà chargée.
     const oldVid = el.querySelector('.ae-thumb');
     fresh.replaceChild(oldVid, fresh.querySelector('.ae-thumb'));
-    const dur = fresh.querySelector('.ae-dur');
     const d = info(p).probe && info(p).probe.duration;
     if (d && !oldVid.querySelector('.ae-dur')) oldVid.insertAdjacentHTML('beforeend', `<span class="ae-dur">${C.fmtTime(d)}</span>`);
-    if (dur) dur.remove();
     el.replaceWith(fresh);
     if (p === rankSel) viewerBar();
   }
@@ -592,23 +596,45 @@
     renderRankFoot();
   }
 
+  // Vignettes des vidéos : une image JPEG faite par ffmpeg (une seule fois, gardée en cache), pas
+  // une vidéo ouverte par carte : des dizaines de rushes HEVC/4K ouverts en même temps saturent la
+  // carte graphique (lecture qui saccade, écrans noirs).
+  const vthumbUrl = new Map();
+  const vthumbJobs = new Map();
+  function vthumbImg(p) {
+    const url = vthumbUrl.get(p);
+    return `<img class="ae-vthumb" data-vthumb="${esc(p)}" ${url ? `src="${esc(url)}"` : ''} alt="" />`;
+  }
+  function loadVThumb(img) {
+    const p = img.dataset.vthumb;
+    if (!vthumbJobs.has(p)) vthumbJobs.set(p, api.autoeditThumb(p).then((r) => (r.ok ? mediaUrl(r.path) : null)));
+    vthumbJobs.get(p).then((url) => {
+      if (!url) {
+        const box = img.closest('.ae-thumb');
+        if (box) box.classList.add('broken');
+        return;
+      }
+      vthumbUrl.set(p, url);
+      img.onload = () => {
+        const box = img.closest('.ae-thumb');
+        if (box) box.classList.add('ready');
+      };
+      if (img.getAttribute('src') !== url) img.src = url;
+    });
+  }
   function watchThumbs() {
     if (thumbObserver) thumbObserver.disconnect();
     thumbObserver = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
           if (!e.isIntersecting) continue;
-          const v = e.target;
-          thumbObserver.unobserve(v);
-          v.onloadeddata = () => v.closest('.ae-thumb').classList.add('ready');
-          v.onerror = () => v.closest('.ae-thumb').classList.add('broken');
-          v.preload = 'metadata';
-          v.src = `${v.dataset.thumb}#t=0.6`;
+          thumbObserver.unobserve(e.target);
+          loadVThumb(e.target);
         }
       },
-      { root: $('#ae-cards'), rootMargin: '200px' }
+      { rootMargin: '300px' }
     );
-    $$('#ae-cards video[data-thumb]').forEach((v) => thumbObserver.observe(v));
+    $$('#autoedit img[data-vthumb]:not([src])').forEach((v) => thumbObserver.observe(v));
   }
 
   function viewerBar() {
@@ -627,65 +653,200 @@
   }
 
   // Lecture au classement : clic gauche = sans les blancs (les passages coupés sont sautés),
-  // clic droit = rush entier.
+  // clic droit = rush entier. Deux vidéos du même rush se relaient : la vidéo cachée attend déjà
+  // calée au début du passage gardé suivant et prend le relais à la fin du passage en cours. Dans un
+  // fichier lourd, un saut prend du temps : il se fait pendant la lecture, sans pause ni retour en
+  // arrière. Elle sert aussi à passer sur l'aperçu léger, dès qu'il est prêt, sans écran noir.
   let rankMode = 'cut';
-  let rankRaf = 0;
+  const rv = { raf: 0, swapAt: null };
+  const rankVid = () => $('#ae-screen video.ae-rv.on');
+  const rankTwin = () => $('#ae-screen video.ae-rv:not(.on)');
   function rankCut(p) {
     const it = info(p);
     if (!it.env || !it.probe) return null;
     const r = C.cutClip(it.env, it.probe.duration, { ...ae.opts, enabled: ae.cut[p] !== false });
     return r.mode === 'cut' ? r : null;
   }
-  function rankLoop() {
-    cancelAnimationFrame(rankRaf);
-    const tick = () => {
-      const v = $('#ae-rank-video');
-      if (!ae.open || ae.step !== 'rank' || !v) return;
-      if (rankMode === 'cut' && !v.paused && v.dataset.path) {
-        const r = rankCut(v.dataset.path);
-        if (r) {
-          const t = v.currentTime;
-          if (!r.segments.some((x) => t >= x.in - 0.02 && t < x.out)) {
-            const next = r.segments.find((x) => x.in > t);
-            if (next) v.currentTime = next.in;
-            else v.pause();
+  // Charge le rush (aperçu léger s'il est prêt) dans une vidéo et la cale à `time`.
+  function cue(el, p, time) {
+    const src = srcOf(p);
+    el.dataset.want = time;
+    if (el.dataset.src !== src) {
+      el.dataset.src = src;
+      el.dataset.path = p;
+      el.src = src;
+      el.addEventListener(
+        'loadedmetadata',
+        () => {
+          if (el.dataset.src === src) el.currentTime = Number(el.dataset.want) || 0;
+        },
+        { once: true }
+      );
+      return;
+    }
+    if (el.readyState >= 1 && !el.seeking && Math.abs(el.currentTime - time) > 0.05) el.currentTime = time;
+  }
+  const cued = (el, p, time) => el.dataset.src === srcOf(p) && el.readyState >= 2 && !el.seeking && Math.abs(el.currentTime - time) < 0.12;
+  // La vidéo cachée prend le relais.
+  function rankSwap(play) {
+    const a = rankVid();
+    const b = rankTwin();
+    b.muted = a.muted;
+    b.volume = a.volume;
+    b.classList.add('on');
+    a.classList.remove('on');
+    if (play) b.play().catch(() => {});
+    a.pause();
+    a.muted = true;
+  }
+  function rankTick() {
+    const v = rankVid();
+    const w = rankTwin();
+    if (!ae.open || ae.step !== 'rank' || !v || !w) return;
+    const p = v.dataset.path;
+    if (p && v.dataset.src && v.readyState >= 1) {
+      const playing = !v.paused && !v.ended;
+      const t = v.currentTime;
+      if (v.dataset.src !== srcOf(p)) {
+        // Aperçu léger prêt : calé un peu plus loin dans la vidéo cachée, relais à cet instant.
+        if (rv.swapAt == null || t > rv.swapAt + 0.4) rv.swapAt = t + (playing ? 0.8 : 0);
+        cue(w, p, rv.swapAt);
+        if (cued(w, p, rv.swapAt) && (!playing || t >= rv.swapAt - 0.04)) {
+          rv.swapAt = null;
+          rankSwap(playing);
+        }
+      } else if (rankMode === 'cut' && playing && !v.seeking) {
+        const r = rankCut(p);
+        const segs = r ? r.segments : [];
+        // Tolérance : après un saut, la vidéo s'arrête sur l'image juste avant l'instant demandé.
+        const k = segs.findIndex((x) => t >= x.in - 0.15 && t < x.out);
+        if (!r) {
+          // Pas encore analysé, ou rien à couper : lecture normale.
+        } else if (k >= 0) {
+          const next = segs[k + 1];
+          if (next) cue(w, p, next.in);
+          if (t >= segs[k].out - 0.04) {
+            if (!next) v.pause();
+            else if (cued(w, p, next.in)) rankSwap(true);
+            else v.currentTime = next.in; // la vidéo cachée n'est pas prête : un seul saut direct
           }
+        } else {
+          // Dans un blanc (début du rush, ou curseur déplacé à la main) : passage gardé suivant.
+          const next = segs.find((x) => x.in > t);
+          if (!next) v.pause();
+          else if (cued(w, p, next.in)) rankSwap(true);
+          else v.currentTime = next.in;
         }
       }
-      rankRaf = requestAnimationFrame(tick);
-    };
-    rankRaf = requestAnimationFrame(tick);
+    }
+    rv.raf = requestAnimationFrame(rankTick);
   }
 
   function selectRush(p, play = true, mode) {
     if (mode) rankMode = mode;
-    rankLoop();
     rankSel = p;
     $$('.ae-card').forEach((c) => c.classList.toggle('sel', c.dataset.aePick === p));
-    const v = $('#ae-rank-video');
-    if (!v) return;
+    const v = rankVid();
+    const w = rankTwin();
+    if (!v || !w) return;
     const msg = $('#ae-rank-msg');
     msg.classList.add('hidden');
-    const retry = () => v.dataset.path === p && selectRush(p, true);
-    // Sans les blancs : la lecture commence au premier passage gardé.
-    v.onplay = () => {
-      const r = rankMode === 'cut' && rankCut(p);
-      if (r && v.currentTime < r.segments[0].in) v.currentTime = r.segments[0].in;
-    };
-    v.onerror = () => needProxy(p, retry, msg);
-    v.onloadedmetadata = () => noPicture(v) && !info(p).proxy && needProxy(p, retry, msg);
+    rv.swapAt = null;
+    const retry = () => rankVid() && rankVid().dataset.path === p && selectRush(p, true);
+    for (const el of [v, w]) {
+      el.onerror = () => el.dataset.path === p && el.getAttribute('src') && needProxy(p, retry, msg);
+      el.onloadedmetadata = () => el.dataset.path === p && noPicture(el) && !info(p).proxy && needProxy(p, retry, msg);
+    }
+    // La vidéo cachée se recharge quand elle sert (passage suivant ou aperçu léger).
+    w.pause();
+    if (w.dataset.path !== p) {
+      w.removeAttribute('src');
+      delete w.dataset.src;
+      w.dataset.path = p;
+      w.load();
+    }
     v.dataset.path = p;
     if (unplayable(p) && !info(p).proxy) {
+      v.pause();
       v.removeAttribute('src');
+      delete v.dataset.src;
       v.load();
       needProxy(p, retry, msg);
     } else {
-      v.src = srcOf(p);
+      // Sans les blancs : la lecture commence au premier passage gardé.
+      const r = rankMode === 'cut' && rankCut(p);
+      cue(v, p, r ? r.segments[0].in : 0);
       if (play) v.play().catch(() => {});
     }
     viewerBar();
     const card = $(`.ae-card[data-ae-pick="${CSS.escape(p)}"]`);
     if (card) card.scrollIntoView({ block: 'nearest' });
+    warmProxies();
+  }
+
+  // Vidéos d'aperçu retirées de l'écran : elles libèrent tout de suite leur décodeur.
+  function releaseVideos() {
+    $$('#ae-body video').forEach((v) => {
+      v.pause();
+      v.removeAttribute('src');
+      delete v.dataset.src;
+      v.load();
+    });
+  }
+
+  // ---------- Aperçus légers en arrière-plan ----------
+  // Rushes lourds (HEVC des iPhone, plus grands que 1080p, plus de 30 i/s) et formats non lisibles :
+  // une copie légère est préparée, un rush à la fois, en commençant par celui qu'on regarde puis les
+  // rushes classés. Elle remplace l'original dans les aperçus dès qu'elle est prête.
+  const heavy = (p) => {
+    const pr = info(p).probe;
+    if (!pr || !pr.vcodec) return false;
+    return unplayable(p) || !/^h264$/i.test(pr.vcodec) || (pr.width || 0) * (pr.height || 0) > 1920 * 1088 || (pr.fps || 0) > 31;
+  };
+  function wantedProxies() {
+    const list = [];
+    const add = (p) => p && !list.includes(p) && list.push(p);
+    if (ae.step === 'rank') {
+      add(rankSel);
+      ae.ranks.forEach(add);
+      ae.media.rushes.forEach((r) => add(r.path));
+    } else {
+      add(player.v[player.cur] && player.v[player.cur].dataset.path);
+      ae.ranks.forEach(add);
+      if (ae.ending && ae.ending.kind === 'video') add(ae.ending.path);
+      ae.overlays.forEach((o) => o.kind === 'video' && add(o.path));
+    }
+    return list.filter((p) => heavy(p) && !info(p).proxy && !info(p).proxyFailed);
+  }
+  let warming = false;
+  async function warmProxies() {
+    if (warming || !ae.open) return;
+    warming = true;
+    try {
+      for (let p = wantedProxies()[0]; p && ae.open; p = wantedProxies()[0]) {
+        const res = await proxyJob(p);
+        if (!ae.open) break;
+        if (res.ok) useProxy(p, res.path);
+        else info(p).proxyFailed = true;
+      }
+    } finally {
+      warming = false;
+    }
+  }
+  function proxyJob(p) {
+    if (!proxyJobs[p]) proxyJobs[p] = api.autoeditProxy(p, info(p).probe && info(p).probe.duration);
+    return proxyJobs[p];
+  }
+  // Aperçu léger prêt : les vidéos qui montrent ce rush passent dessus sans s'arrêter.
+  function useProxy(p, file) {
+    const it = info(p);
+    if (it.proxy === file) return;
+    it.proxy = file;
+    if (ae.step === 'edit') {
+      if (player.v.some((v) => v.dataset.path === p)) player.seek(player.t);
+      showOverlay(player.t);
+    }
+    // Au classement, rankTick s'en charge (relais par la vidéo cachée).
   }
 
   // Format que Coffile ne sait pas lire : un aperçu léger est préparé (une seule fois).
@@ -700,18 +861,11 @@
     };
     show();
     const timer = setInterval(show, 500);
-    if (!proxyJobs[p]) proxyJobs[p] = api.autoeditProxy(p, it.probe && it.probe.duration);
-    proxyJobs[p].then((res) => {
+    proxyJob(p).then((res) => {
       clearInterval(timer);
       if (res.ok) {
         it.proxy = res.path;
         if (msgEl) msgEl.classList.add('hidden');
-        // La vignette du rush aussi.
-        const thumb = $(`.ae-card[data-ae-pick="${CSS.escape(p)}"] .ae-thumb video`);
-        if (thumb) {
-          thumb.onloadeddata = () => thumb.closest('.ae-thumb').classList.add('ready');
-          thumb.src = `${mediaUrl(res.path)}#t=0.6`;
-        }
         then();
       } else if (msgEl) msgEl.innerHTML = `${icon('alert')}Aperçu impossible : ${esc(res.error || '')}`;
     });
@@ -744,7 +898,27 @@
   }
 
   // ---------- Étape 2 : bout à bout ----------
+  // Vidéo prête à montrer l'image demandée (chargée, saut terminé). Délai de secours : 5 s.
+  function whenReady(el, cb) {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      for (const ev of ['seeked', 'loadeddata', 'canplay', 'error']) el.removeEventListener(ev, check);
+      cb();
+    };
+    const check = (e) => {
+      if ((e && e.type === 'error') || (el.readyState >= 2 && !el.seeking)) finish();
+    };
+    for (const ev of ['seeked', 'loadeddata', 'canplay', 'error']) el.addEventListener(ev, check);
+    const timer = setTimeout(finish, 5000);
+    setTimeout(check, 0);
+  }
+
   // Lecteur de la séquence : deux vidéos qui se relaient, la suivante déjà calée sur sa coupe.
+  // Un autre fichier se charge toujours dans la vidéo cachée : l'image affichée reste à l'écran
+  // jusqu'à ce qu'il soit prêt (pas d'écran noir en changeant la fin, en sautant dans la timeline…).
   const player = {
     v: [],
     cur: 0,
@@ -753,6 +927,8 @@
     playing: false,
     raf: 0,
     lastT: 0,
+    pending: false, // un fichier se charge : le temps est arrêté
+    token: 0,
     attach(stage) {
       this.v = [...stage.querySelectorAll('video.ae-v')];
       this.cur = 0;
@@ -769,6 +945,8 @@
     },
     detach() {
       this.pause();
+      this.token++;
+      this.pending = false;
       this.v.forEach((v) => {
         v.removeAttribute('src');
         v.load();
@@ -786,13 +964,28 @@
         v.dataset.path = seg.path;
         v.src = src;
       }
+      v.dataset.want = time;
       const go = () => {
+        const want = Number(v.dataset.want);
+        // Déjà au bon endroit : pas de saut (il ferait saccader la lecture).
+        if (Math.abs(v.currentTime - want) < (this.playing && !v.paused ? 0.25 : 0.04)) return;
         try {
-          v.currentTime = time;
+          v.currentTime = want;
         } catch {}
       };
       if (v.readyState >= 1) go();
       else v.addEventListener('loadedmetadata', go, { once: true });
+    },
+    // La vidéo i (prête) devient l'image affichée ; l'autre se cale sur le morceau suivant.
+    swapTo(i) {
+      const segs = this.segs();
+      this.cur = i;
+      this.show(i);
+      if (this.playing) this.v[i].play().catch(() => {});
+      else this.v[i].pause();
+      this.v[1 - i].pause();
+      const nx = segs[this.k + 1];
+      this.prep(this.v[1 - i], nx, nx && nx.in);
     },
     show(i, still) {
       this.v.forEach((v, j) => v.classList.toggle('on', j === i && !still));
@@ -829,14 +1022,29 @@
       }
       this.k = C.segmentAt(segs, this.t);
       const seg = segs[this.k];
-      const a = this.v[this.cur];
+      const token = ++this.token;
+      this.pending = false;
       if (seg.kind === 'image' || seg.kind === 'mogrt') this.startStill(seg);
       else {
-        this.prep(a, seg, seg.in + (this.t - seg.start));
-        this.show(this.cur);
-        this.prep(this.v[1 - this.cur], segs[this.k + 1], segs[this.k + 1] && segs[this.k + 1].in);
-        if (this.playing) a.play().catch(() => {});
-        else a.pause();
+        const src = srcOf(seg.path);
+        const time = seg.in + (this.t - seg.start);
+        if (this.v[this.cur].dataset.src !== src && this.v[1 - this.cur].dataset.src === src) this.cur = 1 - this.cur;
+        const a = this.v[this.cur];
+        if (a.dataset.src === src) {
+          // Même fichier : saut sur place, l'image affichée reste jusqu'à la nouvelle.
+          this.prep(a, seg, time);
+          this.swapTo(this.cur);
+        } else {
+          const b = this.v[1 - this.cur];
+          a.pause();
+          this.prep(b, seg, time);
+          this.pending = true;
+          whenReady(b, () => {
+            if (token !== this.token) return;
+            this.pending = false;
+            this.swapTo(1 - this.cur);
+          });
+        }
       }
       this.lastT = this.t;
       showOverlay(this.t);
@@ -850,7 +1058,7 @@
       if (this.k < 0) this.seek(this.t);
       const cur = this.segs()[this.k];
       if (cur && (cur.kind === 'image' || cur.kind === 'mogrt')) this.startStill(cur);
-      else this.v[this.cur].play().catch(() => {});
+      else if (!this.pending) this.v[this.cur].play().catch(() => {});
       cancelAnimationFrame(this.raf);
       const tick = () => {
         if (!this.playing) return;
@@ -872,6 +1080,7 @@
       else this.play();
     },
     step() {
+      if (this.pending) return;
       const segs = this.segs();
       const seg = segs[this.k];
       if (!seg) return this.pause();
@@ -908,12 +1117,19 @@
         }
         const next = this.v[1 - this.cur];
         this.prep(next, segs[this.k], segs[this.k].in);
-        next.play().catch(() => {});
-        this.show(1 - this.cur);
-        v.pause();
-        this.cur = 1 - this.cur;
-        this.prep(this.v[1 - this.cur], segs[this.k + 1], segs[this.k + 1] && segs[this.k + 1].in);
         this.t = segs[this.k].start;
+        if (next.readyState >= 2 && !next.seeking) this.swapTo(1 - this.cur);
+        else {
+          // Morceau suivant pas encore prêt : la dernière image reste affichée en attendant.
+          v.pause();
+          this.pending = true;
+          const token = ++this.token;
+          whenReady(next, () => {
+            if (token !== this.token) return;
+            this.pending = false;
+            this.swapTo(1 - this.cur);
+          });
+        }
       } else this.t = Math.max(seg.start, Math.min(seg.end, t));
       // Sound effects des images qui apparaissent.
       for (const o of ae.overlays) if (o.sfx && o.start > this.lastT && o.start <= this.t) playSfx(o.sfx.path);
@@ -1030,7 +1246,7 @@
       </div>
       <div class="ae-tl-wrap">
         <div class="ae-tl-tools"><b>${icon('film')}Timeline</b><span id="ae-tl-info"></span><label class="ae-zoom">${icon('search')}<input type="range" min="1" max="12" step="0.5" value="${ae.zoom}" data-ae-zoom /></label></div>
-        <div class="ae-tl-scroll" id="ae-tl-scroll"><canvas id="ae-tl"></canvas></div>
+        <div class="ae-tl-scroll" id="ae-tl-scroll"><div class="ae-tl-spacer" id="ae-tl-spacer"></div><div class="ae-tl-layers"><canvas id="ae-tl"></canvas><canvas id="ae-tl-head"></canvas></div></div>
       </div>`;
     $('#ae-foot').innerHTML = `<button class="btn ghost" data-ae-act="to-rank">${icon('arrow', 'flip')}Retour au classement</button>
       <span class="ae-foot-info" id="ae-foot-info"></span>
@@ -1048,23 +1264,8 @@
     bindTimeline();
     rebuild();
     playBtn();
-    prepareProxies();
+    warmProxies();
     startTranscribe();
-  }
-
-  // Aperçus légers préparés d'avance pour les rushes classés dans un format non lisible.
-  async function prepareProxies() {
-    for (const p of ae.ranks) {
-      if (ae.step !== 'edit') return;
-      if (!unplayable(p) || info(p).proxy) continue;
-      await new Promise((done) => {
-        needProxy(p, () => {
-          player.seek(player.t);
-          done();
-        }, $('#ae-stage-msg'));
-        if (proxyJobs[p]) proxyJobs[p].then(done);
-      });
-    }
   }
 
   // Cadre de l'aperçu au format de la séquence (celui du 1er rush classé).
@@ -1109,6 +1310,7 @@
         ${o.kind === 'mogrt' ? `<p class="ae-muted small">${icon('layers')}Texte, couleurs et animation du modèle se règlent dans Premiere (panneau Objets graphiques essentiels).</p>` : ''}
         <div class="ae-field"><label>Sound effect</label>${o.sfx ? `<div class="ae-sfx-cur">${icon('music')}<span>${esc(o.sfx.name)}</span><button class="ae-x" data-ae-act="sfx-play" title="Écouter">${icon('play')}</button></div>` : '<span class="ae-muted">Aucun</span>'}</div>
         <div class="ae-side-actions"><button class="btn sm" data-ae-act="ov-edit">${icon('pencil')}Changer</button><button class="btn sm danger" data-ae-act="ov-del">${icon('trash')}Supprimer</button></div>`;
+      watchThumbs();
       return;
     }
     const tabs = `<div class="ae-side-tabs"><button class="${ae.sideTab !== 'subs' ? 'on' : ''}" data-ae-tab="cut">${icon('scissors')}Coupe</button><button class="${ae.sideTab === 'subs' ? 'on' : ''}" data-ae-tab="subs">${icon('type')}Sous-titres${ae.subs.enabled ? '<i class="ae-dot"></i>' : ''}</button></div>`;
@@ -1151,10 +1353,13 @@
   const sensLabel = () => (ae.opts.sensitivity <= 30 ? 'douce' : ae.opts.sensitivity >= 70 ? 'forte' : 'normale');
 
   // ---------- Timeline ----------
+  // Le dessin ne couvre que la partie visible (la barre de défilement suit la longueur du montage) :
+  // un canvas aussi long que le montage zoomé dépasse la taille permise et devient noir. La tête de
+  // lecture est sur un 2e canvas, effacé à chaque image : elle ne peut plus se dédoubler.
   let stageObserver = null;
   let drag = null;
-  let staticCanvas = null;
   let pps = 1;
+  let tlScroll = 0; // défilement de la timeline au dernier dessin (px)
 
   function tlWidth() {
     const scroll = $('#ae-tl-scroll');
@@ -1166,31 +1371,49 @@
   const xOf = (t) => TL.pad + t * pps;
   const tOf = (x) => Math.max(0, Math.min(ae.seq.total, (x - TL.pad) / pps));
 
+  // Taille d'un canvas (en pixels de l'écran), changée seulement si besoin.
+  function sizeCanvas(cv, w, h, dpr) {
+    const W = Math.round(w * dpr);
+    const H = Math.round(h * dpr);
+    if (cv.width !== W || cv.height !== H) {
+      cv.width = W;
+      cv.height = H;
+      cv.style.width = `${w}px`;
+      cv.style.height = `${h}px`;
+    }
+  }
+
   function drawTimeline() {
     const cv = $('#ae-tl');
-    if (!cv) return;
+    const sc = $('#ae-tl-scroll');
+    if (!cv || !sc || !ae.open) return;
     const dpr = window.devicePixelRatio || 1;
     const W = tlWidth();
     const H = TL.height;
-    if (!ae.open || W < 2) return;
-    cv.style.width = `${W}px`;
-    cv.style.height = `${H}px`;
-    cv.width = Math.round(W * dpr);
-    cv.height = Math.round(H * dpr);
-    staticCanvas = document.createElement('canvas');
-    staticCanvas.width = cv.width;
-    staticCanvas.height = cv.height;
-    const g = staticCanvas.getContext('2d');
-    g.scale(dpr, dpr);
+    const vw = sc.clientWidth;
+    if (vw < 2) return;
+    $('#ae-tl-spacer').style.width = `${W}px`;
+    tlScroll = Math.max(0, Math.min(sc.scrollLeft, W - vw));
+    sizeCanvas(cv, vw, H, dpr);
+    sizeCanvas($('#ae-tl-head'), vw, H, dpr);
+    const g = cv.getContext('2d');
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, cv.width, cv.height);
+    // Coordonnées de la timeline entière, décalées du défilement.
+    g.setTransform(dpr, 0, 0, dpr, -tlScroll * dpr, 0);
+    const L = tlScroll;
+    const R = tlScroll + vw;
+    const seen = (a, b) => b >= L - 2 && a <= R + 2;
     g.fillStyle = '#0d0d10';
-    g.fillRect(0, 0, W, H);
+    g.fillRect(L, 0, vw, H);
     // Règle.
     g.font = '10px InterVar, Segoe UI, sans-serif';
     g.fillStyle = '#6b6b75';
     g.strokeStyle = 'rgba(255,255,255,0.08)';
+    g.lineWidth = 1;
     const steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
-    const stepS = steps.find((s) => s * pps >= 70) || 600;
-    for (let s = 0; s <= ae.seq.total + 0.001; s += stepS) {
+    const stepS = steps.find((x) => x * pps >= 70) || 600;
+    for (let s = Math.max(0, Math.floor(tOf(L) / stepS) * stepS); s <= ae.seq.total + 0.001 && xOf(s) <= R + 80; s += stepS) {
       const x = Math.round(xOf(s)) + 0.5;
       g.beginPath();
       g.moveTo(x, TL.ruler - 6);
@@ -1200,12 +1423,13 @@
     }
     // Pistes.
     g.fillStyle = 'rgba(255,255,255,0.025)';
-    g.fillRect(0, TL.imgTop, W, TL.imgH);
-    g.fillRect(0, TL.clipTop, W, TL.clipH);
+    g.fillRect(L, TL.imgTop, vw, TL.imgH);
+    g.fillRect(L, TL.clipTop, vw, TL.clipH);
     // Rushes coupés, avec la forme du son.
     for (const seg of ae.seq.segments) {
       const x0 = xOf(seg.start);
       const x1 = xOf(seg.end);
+      if (!seen(x0, x1)) continue;
       const col = seg.ending ? '#e9c46a' : COLORS[seg.clip % COLORS.length];
       g.fillStyle = col + '33';
       g.fillRect(x0, TL.clipTop, Math.max(1, x1 - x0 - 1), TL.clipH);
@@ -1224,7 +1448,7 @@
       if (env && env.db && env.db.length) {
         g.fillStyle = col + 'aa';
         const mid = TL.clipTop + 8 + (TL.clipH - 12) / 2;
-        for (let x = Math.floor(x0); x < x1 - 1; x++) {
+        for (let x = Math.max(Math.floor(x0), Math.floor(L)); x < Math.min(x1 - 1, R + 1); x++) {
           const a = seg.in + ((x - x0) / pps);
           const b = seg.in + ((x + 1 - x0) / pps);
           let m = -90;
@@ -1244,7 +1468,7 @@
         g.beginPath();
         g.rect(x0 + 4, TL.clipTop, x1 - x0 - 8, TL.clipH);
         g.clip();
-        g.fillText(seg.ending ? `FIN · ${r.name}` : `${seg.clip + 1}. ${r.name}`, x0 + 5, TL.clipTop + 15);
+        g.fillText(seg.ending ? `FIN · ${r.name}` : `${seg.clip + 1}. ${r.name}`, Math.max(x0 + 5, Math.min(L + 5, x1 - 60)), TL.clipTop + 15);
         g.restore();
       }
     }
@@ -1253,6 +1477,7 @@
     for (const o of ae.overlays) {
       const x0 = xOf(o.start);
       const w = Math.max(6, o.duration * pps);
+      if (!seen(x0, x0 + w)) continue;
       const sel = o.id === ae.selected;
       const c = OV_COL[o.kind] || OV_COL.image;
       g.fillStyle = `rgba(${c},${sel ? 0.35 : 0.18})`;
@@ -1348,15 +1573,23 @@
   }
 
   function drawPlayhead(follow) {
-    const cv = $('#ae-tl');
+    const cv = $('#ae-tl-head');
     // AUTOEDIT fermé ou pas encore affiché : rien à dessiner.
-    if (!cv || !staticCanvas || !staticCanvas.width || !staticCanvas.height || !cv.width) return;
+    if (!cv || !cv.width || !cv.height) return;
+    const x = Math.round(xOf(player.t)) + 0.5;
+    if (follow) {
+      const sc = $('#ae-tl-scroll');
+      if (sc && (x < sc.scrollLeft + 40 || x > sc.scrollLeft + sc.clientWidth - 40)) {
+        sc.scrollLeft = x - 60;
+        drawTimeline();
+        return;
+      }
+    }
     const g = cv.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.drawImage(staticCanvas, 0, 0);
-    g.scale(dpr, dpr);
-    const x = Math.round(xOf(player.t)) + 0.5;
+    g.clearRect(0, 0, cv.width, cv.height);
+    g.setTransform(dpr, 0, 0, dpr, -tlScroll * dpr, 0);
     g.strokeStyle = '#ff7a32';
     g.lineWidth = 1.5;
     g.beginPath();
@@ -1370,10 +1603,6 @@
     g.lineTo(x, 9);
     g.closePath();
     g.fill();
-    if (follow) {
-      const sc = $('#ae-tl-scroll');
-      if (sc && (x < sc.scrollLeft + 40 || x > sc.scrollLeft + sc.clientWidth - 40)) sc.scrollLeft = x - 60;
-    }
   }
 
   function overlayAtX(x, y) {
@@ -1386,9 +1615,10 @@
     return hit;
   }
 
+  // Position de la souris en coordonnées de la timeline entière.
   const tlPos = (e) => {
     const r = $('#ae-tl').getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    return { x: e.clientX - r.left + tlScroll, y: e.clientY - r.top };
   };
 
   // Glisser une image ou la tête de lecture (écouteurs posés une seule fois).
@@ -1412,6 +1642,14 @@
   function bindTimeline() {
     const cv = $('#ae-tl');
     const pos = tlPos;
+    // Défilement : la partie visible est redessinée.
+    let scrollRaf = 0;
+    $('#ae-tl-scroll').addEventListener('scroll', () => {
+      cancelAnimationFrame(scrollRaf);
+      scrollRaf = requestAnimationFrame(drawTimeline);
+    });
+    // Carte graphique saturée ou réinitialisée : Chrome efface les canvas, on les redessine.
+    for (const c of [cv, $('#ae-tl-head')]) c.addEventListener('contextrestored', () => drawTimeline());
     cv.addEventListener('mousedown', (e) => {
       const { x, y } = pos(e);
       const o = overlayAtX(x, y);
@@ -1510,6 +1748,7 @@
         <button class="btn primary" data-ae-act="end-ok" ${sel ? '' : 'disabled'}>${icon('check')}Mettre cette fin</button>
       </footer>
     </div>`;
+    watchThumbs();
   }
 
   async function endingOk() {
@@ -1527,6 +1766,7 @@
     }
     if (f.kind === 'video' && !analysed(f.path)) api.autoeditAnalyze([f.path]);
     ae.ending = e;
+    warmProxies();
     closePicker();
     save();
     rebuild();
@@ -1583,6 +1823,7 @@
       </div>
       <footer><button class="btn ghost" data-ae-act="pick-close">Annuler</button><button class="btn primary" data-ae-act="pick-ok" ${sel && (!p.sfxOn || p.sfx) ? '' : 'disabled'}>${icon('check')}${p.edit ? 'Enregistrer' : "Ajouter l'overlay"}</button></footer>
     </div>`;
+    watchThumbs();
     const pv = $('#ae-pick-video');
     if (pv) {
       pv.onloadedmetadata = () => {
@@ -1649,7 +1890,9 @@
     save();
     renderSide();
     drawTimeline();
-    player.seek(player.t);
+    // Seul l'overlay change : la vidéo du montage reste où elle est (pas de rechargement).
+    showOverlay(player.t);
+    if (sel.kind === 'video') warmProxies();
   }
 
   // ---------- Étape 3 : validation ----------
@@ -1880,7 +2123,7 @@
       const modeBtn = t.closest('[data-ae-mode]');
       if (modeBtn) {
         rankMode = modeBtn.dataset.aeMode;
-        const v = $('#ae-rank-video');
+        const v = rankVid();
         viewerBar();
         if (v && v.paused) v.play().catch(() => {});
         return;
@@ -1907,8 +2150,6 @@
         viewerBar();
       } else if (a === 'rank-next') rankNext();
       else if (a === 'to-edit') {
-        const v = $('#ae-rank-video');
-        if (v) v.pause();
         ae.step = 'edit';
         save();
         render();

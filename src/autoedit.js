@@ -7,6 +7,7 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 const { spawn } = require('child_process');
 const { FOLDERS } = require('./project');
 
@@ -26,6 +27,7 @@ let cacheDir = null;
 function init(dir) {
   cacheDir = dir;
   fs.mkdirSync(path.join(dir, 'proxys'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'vignettes'), { recursive: true });
 }
 
 // ---------- ffmpeg ----------
@@ -40,7 +42,8 @@ function ffmpegPath() {
 }
 
 // Lance ffmpeg ; onData reçoit la sortie standard, onErr chaque ligne d'erreur/progression.
-function run(args, { onData, onErr, signal } = {}) {
+// low : priorité basse (travail de fond, comme les aperçus légers) pour ne pas freiner la lecture.
+function run(args, { onData, onErr, signal, low } = {}) {
   return new Promise((resolve, reject) => {
     let proc;
     try {
@@ -48,6 +51,11 @@ function run(args, { onData, onErr, signal } = {}) {
     } catch (e) {
       reject(e);
       return;
+    }
+    if (low && proc.pid) {
+      try {
+        os.setPriority(proc.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
+      } catch {}
     }
     let stderr = '';
     let buf = '';
@@ -170,28 +178,55 @@ async function envelope(file, { onProgress, signal, duration } = {}) {
   return out;
 }
 
-// Aperçu léger (540p, H.264) pour les formats que Coffile ne sait pas lire (ProRes, MXF, HEVC sans décodeur…).
+// Aperçu léger pour la prévisualisation (H.264, 960 px de long, 30 i/s au plus, une image clé toutes
+// les 12 images) : les formats que Coffile ne sait pas lire (ProRes, MXF…) et les rushes lourds
+// (HEVC des iPhone, 4K, 60 i/s), dont la lecture et les sauts d'un passage à l'autre saccadent.
+// Le montage envoyé à Premiere utilise toujours les fichiers d'origine.
+const PREVIEW_SCALE = "scale='if(gte(iw,ih),min(960,iw),-2)':'if(gte(iw,ih),-2,min(960,ih))'";
 async function proxy(file, { onProgress, signal, duration } = {}) {
   const { key } = await keyOf(file);
-  const out = path.join(cacheDir, 'proxys', `${key}.mp4`);
+  const out = path.join(cacheDir, 'proxys', `${key}-v2.mp4`);
   if (fs.existsSync(out)) return out;
   const tmp = `${out}.tmp.mp4`;
-  const { code, stderr } = await run(
-    ['-v', 'error', '-nostdin', '-y', '-i', file, '-map', '0:v:0', '-map', '0:a:0?', '-vf', 'scale=-2:540', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '30', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '96k', '-ac', '2', '-movflags', '+faststart', '-progress', 'pipe:2', tmp],
-    {
-      signal,
-      onErr: (l) => {
-        const m = l.match(/^out_time_us=(\d+)/) || l.match(/^out_time_ms=(\d+)/);
-        if (m && duration && onProgress) onProgress(Math.min(1, Number(m[1]) / 1e6 / duration));
-      }
-    }
-  );
-  if (code !== 0) {
+  const args = (hw) => [
+    '-v', 'error', '-nostdin', '-y',
+    ...(hw ? ['-hwaccel', 'auto'] : []),
+    '-i', file, '-map', '0:v:0', '-map', '0:a:0?',
+    '-vf', `${PREVIEW_SCALE},format=yuv420p`, '-fpsmax', '30',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'fastdecode', '-crf', '27', '-g', '12', '-keyint_min', '12', '-sc_threshold', '0',
+    '-c:a', 'aac', '-b:a', '96k', '-ac', '2', '-movflags', '+faststart', '-progress', 'pipe:2', tmp
+  ];
+  const onErr = (l) => {
+    const m = l.match(/^out_time_us=(\d+)/) || l.match(/^out_time_ms=(\d+)/);
+    if (m && duration && onProgress) onProgress(Math.min(1, Number(m[1]) / 1e6 / duration));
+  };
+  // Décodage par la carte graphique quand elle sait le faire (bien plus rapide en HEVC 4K), sinon processeur.
+  let res = await run(args(true), { signal, onErr, low: true });
+  if (res.code !== 0 && !(signal && signal.aborted)) res = await run(args(false), { signal, onErr, low: true });
+  if (res.code !== 0) {
     await fsp.rm(tmp, { force: true });
-    throw new Error(signal && signal.aborted ? 'annulé' : stderr.split('\n').filter((l) => l && !/=/.test(l)).pop() || 'Aperçu impossible');
+    throw new Error(signal && signal.aborted ? 'annulé' : res.stderr.split('\n').filter((l) => l && !/=/.test(l)).pop() || 'Aperçu impossible');
   }
   await fsp.rename(tmp, out);
   return out;
+}
+
+// Vignette d'une vidéo (image JPEG, 320 px) : les listes de rushes n'ouvrent plus une vidéo par carte.
+async function thumbnail(file) {
+  const { key } = await keyOf(file);
+  const out = path.join(cacheDir, 'vignettes', `${key}.jpg`);
+  if (fs.existsSync(out)) return out;
+  const tmp = `${out}.tmp.jpg`;
+  const scale = "scale='if(gte(iw,ih),320,-2)':'if(gte(iw,ih),-2,320)'";
+  for (const at of ['0.6', '0']) {
+    const { code } = await run(['-v', 'error', '-nostdin', '-y', '-ss', at, '-i', file, '-map', '0:v:0', '-frames:v', '1', '-vf', scale, '-q:v', '4', tmp]);
+    if (code === 0 && fs.existsSync(tmp) && fs.statSync(tmp).size > 0) {
+      await fsp.rename(tmp, out);
+      return out;
+    }
+  }
+  await fsp.rm(tmp, { force: true });
+  throw new Error('Vignette impossible');
 }
 
 // ---------- Fichiers du projet ----------
@@ -594,6 +629,7 @@ module.exports = {
   probe,
   envelope,
   proxy,
+  thumbnail,
   listMedia,
   loadState,
   saveState,
