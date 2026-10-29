@@ -139,9 +139,13 @@ jobs:
           $inst = Join-Path $env:RUNNER_TEMP 'CoffileApp'
           Start-Process "dist\Coffile-Setup-$ver.exe" -ArgumentList '/S', "/D=$inst" -Wait
           if (-not (Test-Path "$inst\Coffile.exe")) { Fail 'Installation ratée' }
-          $srv = Start-Process python -ArgumentList '-m', 'http.server', '8765', '--directory', $feed -PassThru -WindowStyle Hidden
-          Start-Sleep -Seconds 2
-          try { Invoke-WebRequest 'http://127.0.0.1:8765/latest.yml' -UseBasicParsing | Out-Null } catch { Fail "Flux local injoignable : $_" }
+          $srv = Start-Process python -ArgumentList '-m', 'http.server', '8765', '--bind', '127.0.0.1', '--directory', $feed -PassThru -WindowStyle Hidden
+          $up = $false
+          for ($i = 0; $i -lt 30 -and -not $up; $i++) {
+            Start-Sleep -Seconds 1
+            try { Invoke-WebRequest 'http://127.0.0.1:8765/latest.yml' -UseBasicParsing | Out-Null; $up = $true } catch {}
+          }
+          if (-not $up) { Fail 'Flux local injoignable' }
           $env:COFFILE_UPDATE_FEED = 'http://127.0.0.1:8765'
           $old = Start-Process "$inst\Coffile.exe" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\app-out.txt" -RedirectStandardError "$env:RUNNER_TEMP\app-err.txt"
           $exited = $old.WaitForExit(180000)
@@ -269,9 +273,10 @@ jobs:
           mkdir -p "$FEED"
           cp dist/Coffile-$ver-mac-*.zip "$FEED/"
           sed 's/^version: .*/version: 99.0.0/' dist/latest-mac.yml > "$FEED/latest-mac.yml"
-          python3 -m http.server 8765 --directory "$FEED" >/dev/null 2>&1 &
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory "$FEED" >/dev/null 2>&1 &
           SRV=$!
-          sleep 2
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8765/latest-mac.yml >/dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:8765/latest-mac.yml | head -3
           LOG="$HOME/Library/Application Support/Coffile/mises-a-jour.log"
           diag() {
             echo "::error title=Mac journal::$1%0A$( (tail -n 40 "$LOG" 2>/dev/null || echo 'pas de journal') | sed ':a;N;$!ba;s/\n/%0A/g')"

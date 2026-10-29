@@ -48,7 +48,13 @@ function init(onChange) {
     set({ status: 'dev' });
     return;
   }
-  engine = makeEngine();
+  try {
+    engine = makeEngine();
+  } catch (e) {
+    log(`erreur au démarrage des mises à jour : ${e.message}`);
+    set({ status: 'error', error: friendly(e) });
+    return;
+  }
   const u = engine.emitter;
   u.on('checking-for-update', () => set({ status: 'checking', error: null }));
   u.on('update-not-available', () => {

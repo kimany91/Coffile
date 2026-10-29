@@ -11,8 +11,7 @@ const fsp = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn, execFile } = require('child_process');
-const yaml = require('js-yaml');
-const semver = require('semver');
+const version = require('./version');
 
 const FEED = (process.env.COFFILE_UPDATE_FEED || 'https://github.com/kimany91/Coffile/releases/latest/download').replace(/\/+$/, '');
 
@@ -85,9 +84,9 @@ class MacUpdater extends EventEmitter {
       const res = await net.fetch(`${FEED}/latest-mac.yml?t=${Date.now()}`, { cache: 'no-store' });
       if (res.status === 404) throw new Error('No published versions');
       if (!res.ok) throw new Error(`Recherche impossible (HTTP ${res.status})`);
-      const info = yaml.load(await res.text());
-      if (!info || !semver.valid(info.version)) throw new Error('Fichier latest-mac.yml illisible');
-      if (!semver.gt(info.version, app.getVersion())) {
+      const info = version.parseLatestYml(await res.text());
+      if (!version.valid(info.version)) throw new Error('Fichier latest-mac.yml illisible');
+      if (!version.gt(info.version, app.getVersion())) {
         this.emit('update-not-available', info);
         return null;
       }

@@ -631,7 +631,7 @@ function registerIpc() {
   ipcMain.handle('update:check', () => updater.check(true));
   // Nouveautés à montrer après une mise à jour : les versions installées depuis la dernière ouverture.
   ipcMain.handle('app:whatsNew', () => {
-    const semver = require('semver');
+    const semver = require('./version');
     const cur = app.getVersion();
     const last = settings.lastVersion;
     let entries = [];
