@@ -131,7 +131,7 @@ jobs:
           $srv = Start-Process python -ArgumentList '-m', 'http.server', '8765', '--directory', $feed -PassThru -WindowStyle Hidden
           Start-Sleep -Seconds 2
           $env:COFFILE_UPDATE_FEED = 'http://127.0.0.1:8765'
-          $old = Start-Process "$inst\Coffile.exe" -PassThru
+          $old = Start-Process "$inst\Coffile.exe" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\app-out.txt" -RedirectStandardError "$env:RUNNER_TEMP\app-err.txt"
           $exited = $old.WaitForExit(180000)
           # La version relancée lit le même flux : il annonce maintenant la version installée (pas de boucle).
           Set-Content -NoNewline (Join-Path $feed 'latest.yml') $orig
@@ -148,7 +148,14 @@ jobs:
           $installed = [bool](Select-String -Path $log -Pattern 'installation de 99.0.0' -SimpleMatch -Quiet)
           Get-Process Coffile -ErrorAction SilentlyContinue | Stop-Process -Force
           Stop-Process -Id $srv.Id -Force -ErrorAction SilentlyContinue
-          if (-not $new -or $starts -lt 2 -or -not $installed) { Write-Error "Mise à jour ratée : relancé=$([bool]$new) démarrages=$starts installée=$installed"; exit 1 }
+          if (-not $new -or $starts -lt 2 -or -not $installed) {
+            # Diagnostic lisible dans les annotations du workflow.
+            $j = if (Test-Path $log) { (Get-Content $log | Select-Object -Last 40) -join '%0A' } else { 'pas de journal' }
+            $e = if (Test-Path "$env:RUNNER_TEMP\app-err.txt") { (Get-Content "$env:RUNNER_TEMP\app-err.txt" | Select-Object -Last 15) -join '%0A' } else { '' }
+            Write-Host "::error title=Windows journal::fermé=$exited relancé=$([bool]$new) démarrages=$starts installée=$installed%0A$j"
+            Write-Host "::error title=Windows sortie::$e"
+            exit 1
+          }
           Write-Host "Mise à jour automatique OK : fermé, installé, relancé."
 
       - uses: actions/upload-artifact@v4
@@ -262,10 +269,14 @@ jobs:
           SRV=$!
           sleep 2
           LOG="$HOME/Library/Application Support/Coffile/mises-a-jour.log"
-          COFFILE_UPDATE_FEED=http://127.0.0.1:8765 "$APPS/Coffile.app/Contents/MacOS/Coffile" >/dev/null 2>&1 &
+          diag() {
+            echo "::error title=Mac journal::$1%0A$( (tail -n 40 "$LOG" 2>/dev/null || echo 'pas de journal') | sed ':a;N;$!ba;s/\n/%0A/g')"
+            echo "::error title=Mac sortie::$(tail -n 20 "$RUNNER_TEMP/app-out.txt" 2>/dev/null | sed ':a;N;$!ba;s/\n/%0A/g')"
+          }
+          COFFILE_UPDATE_FEED=http://127.0.0.1:8765 "$APPS/Coffile.app/Contents/MacOS/Coffile" > "$RUNNER_TEMP/app-out.txt" 2>&1 &
           OLD=$!
           for i in $(seq 1 180); do kill -0 $OLD 2>/dev/null || break; sleep 1; done
-          if kill -0 $OLD 2>/dev/null; then echo "Coffile ne s'est pas fermé pour se mettre à jour"; cat "$LOG"; exit 1; fi
+          if kill -0 $OLD 2>/dev/null; then diag "Coffile ne s'est pas fermé pour se mettre à jour"; exit 1; fi
           replaced=no
           for i in $(seq 1 60); do
             if [ -d "$APPS/Coffile.app" ] && ! xattr -p fr.coffile.test "$APPS/Coffile.app" >/dev/null 2>&1; then replaced=yes; break; fi
@@ -283,7 +294,7 @@ jobs:
           kill $SRV || true
           codesign --verify --deep --strict "$APPS/Coffile.app"
           if [ "$replaced" != yes ] || [ "$relaunched" != yes ] || [ "$starts" -lt 2 ] || ! grep -q 'remplacé' "$LOG"; then
-            echo "Mise à jour ratée : remplacée=$replaced relancée=$relaunched démarrages=$starts"; exit 1
+            diag "Mise à jour ratée : remplacée=$replaced relancée=$relaunched démarrages=$starts"; exit 1
           fi
           echo "Mise à jour automatique OK : fermé, remplacé, relancé."
 

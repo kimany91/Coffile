@@ -33,6 +33,7 @@ function makeEngine() {
     return { emitter: u, check: () => u.check(), install: () => u.install(true) };
   }
   const { autoUpdater } = require('electron-updater');
+  autoUpdater.logger = { info: (m) => log(`electron-updater : ${m}`), warn: (m) => log(`electron-updater (attention) : ${m}`), error: (m) => log(`electron-updater (erreur) : ${m}`), debug: () => {} };
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   // Tests : flux de mises à jour local à la place de GitHub.
