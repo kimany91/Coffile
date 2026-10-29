@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Coffile</title>
+  <style>
+    body { margin: 0; padding: 14px; background: #232323; color: #e8e8e8; font: 12px/1.45 'Segoe UI', system-ui, sans-serif; }
+    h1 { margin: 0 0 4px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+    h1 b { display: inline-block; padding: 2px 8px; border-radius: 999px; background: linear-gradient(135deg, #ff4d38, #ffa63d); color: #1a0d06; font-size: 10.5px; letter-spacing: 0.08em; }
+    p { margin: 0 0 12px; color: #a8a8a8; }
+    button { background: #3a3a3a; color: #fff; border: 1px solid #555; border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
+    button:hover { background: #474747; }
+    #log { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+    #log div { padding: 7px 9px; border-radius: 6px; background: #2c2c2c; border-left: 3px solid #666; }
+    #log div.ok { border-left-color: #34d399; }
+    #log div.err { border-left-color: #f87171; }
+    #log i { display: block; font-style: normal; font-size: 10.5px; color: #8a8a8a; }
+  </style>
+</head>
+<body>
+  <h1><b>AUTOEDIT</b>Coffile</h1>
+  <p>Les montages validés dans Coffile arrivent ici tout seuls et sont construits dans ton projet.</p>
+  <button onclick="coffileRetry()">Refaire le dernier montage</button>
+  <div id="log"></div>
+  <script src="bridge.js"></script>
+</body>
+</html>

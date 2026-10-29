@@ -1,0 +1,8 @@
+node_modules/
+dist/
+src/oauth-client.json
+captures/
+# Binaires téléchargés par le workflow (versions officielles, empreintes vérifiées)
+vendor/ffmpeg-win/ffmpeg.exe
+vendor/whisper-win/*.exe
+vendor/whisper-win/*.dll

@@ -1,0 +1,117 @@
+# Construit Coffile-Setup.exe sur Windows et publie la version GitHub utilisée par les mises
+# à jour automatiques. Tout est automatique : dès que "version" change dans package.json sur
+# main, la nouvelle version est construite et publiée. Les PC où Coffile est installé la
+# trouvent et l'installent tout seuls.
+#
+# Une version déjà publiée n'est jamais refaite (rien ne se passe tant que le numéro ne change pas).
+# ffmpeg et whisper ne sont pas dans le dépôt : ils sont téléchargés depuis leurs versions
+# officielles et vérifiés (SHA-256) avant d'être mis dans l'installateur.
+#
+# Signature optionnelle : secrets WIN_CSC_LINK (.pfx en base64) et WIN_CSC_KEY_PASSWORD.
+name: Coffile (installateur Windows)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+      - '.github/workflows/build-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: v
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ver = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tag = "v$ver"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          $exists = $LASTEXITCODE -eq 0
+          $global:LASTEXITCODE = 0
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "exists=$($exists.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if ($exists) { Write-Host "La version $tag est déjà publiée : rien à faire." } else { Write-Host "Nouvelle version $tag" }
+
+      - uses: actions/setup-node@v4
+        if: steps.v.outputs.exists != 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: ffmpeg et whisper (versions officielles, empreintes vérifiées)
+        if: steps.v.outputs.exists != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Check($file, $sha) {
+            $h = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+            if ($h -ne $sha) { throw "Empreinte inattendue pour $file : $h" }
+          }
+          $t = Join-Path $env:RUNNER_TEMP 'vendor'
+          New-Item -ItemType Directory -Force $t | Out-Null
+
+          # ffmpeg 6.0 statique (eugeneware/ffmpeg-static b6.0)
+          Invoke-WebRequest 'https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-win32-x64.gz' -OutFile "$t\ffmpeg.gz"
+          $in = [IO.File]::OpenRead("$t\ffmpeg.gz")
+          $gz = New-Object IO.Compression.GZipStream($in, [IO.Compression.CompressionMode]::Decompress)
+          $out = [IO.File]::Create('vendor\ffmpeg-win\ffmpeg.exe')
+          $gz.CopyTo($out); $out.Close(); $gz.Close(); $in.Close()
+          Check 'vendor\ffmpeg-win\ffmpeg.exe' 'e9fd5e711debab9d680955fc1e38a2c1160fd280b144476cc3f62bc43ef49db1'
+
+          # whisper.cpp v1.7.6 (Windows x64, CPU)
+          Invoke-WebRequest 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.6/whisper-bin-x64.zip' -OutFile "$t\whisper.zip"
+          Expand-Archive "$t\whisper.zip" -DestinationPath "$t\whisper" -Force
+          $want = @{
+            'whisper-cli.exe' = 'b7c6dc2e999a80bc2d23cd4c76701211f392ae55d5cabdf0d45eb2ca4faf09af'
+            'whisper.dll'     = 'bbeceed370799687a363244edc583bac3dc5d472f5bd14691a26f22c7e710bb8'
+            'ggml.dll'        = 'f91ef57cfd6d2f07a5fc33e5dca114b3dc3abe8495f47b46dfbe178d6d775c37'
+            'ggml-base.dll'   = 'e912e19071c32d673a81de4aab058d36328cc6b0c59c75889a0ba4c65fd6a4e6'
+            'ggml-cpu.dll'    = '341ed96e2520ef9b44509f18b5ac4f60d171e47a6c55ab390d704ea7b06ae617'
+          }
+          foreach ($f in $want.Keys) {
+            Copy-Item "$t\whisper\Release\$f" "vendor\whisper-win\$f"
+            Check "vendor\whisper-win\$f" $want[$f]
+          }
+          Get-ChildItem vendor\ffmpeg-win, vendor\whisper-win | Select-Object Name, Length
+
+      - name: Dépendances
+        if: steps.v.outputs.exists != 'true'
+        run: npm ci
+
+      - name: Construire et publier
+        if: steps.v.outputs.exists != 'true'
+        run: npx electron-builder --win nsis --x64 --publish always
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Vérifier la version publiée
+        if: steps.v.outputs.exists != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ steps.v.outputs.tag }}'
+          $r = gh release view $tag --repo $env:GITHUB_REPOSITORY --json isDraft,isPrerelease,assets | ConvertFrom-Json
+          $names = $r.assets.name
+          $names
+          if ($r.isDraft -or $r.isPrerelease) { Write-Error "La version $tag n'est pas publiée normalement (brouillon ou pré-version)."; exit 1 }
+          foreach ($n in @('latest.yml', "Coffile-Setup-$($tag.Substring(1)).exe", "Coffile-Setup-$($tag.Substring(1)).exe.blockmap")) {
+            if ($names -notcontains $n) { Write-Error "Fichier manquant dans la version : $n"; exit 1 }
+          }

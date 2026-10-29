@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: filedit-media:; media-src filedit-media:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'" />
+  <title>Coffile</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="titlebar">
+      <div class="brand">
+        <img src="assets/icon.png" alt="" class="brand-logo" />
+        <span class="brand-name">Coffile</span>
+        <span class="brand-tag">Studio</span>
+      </div>
+    </header>
+
+    <aside class="sidebar">
+      <nav class="nav">
+        <button class="nav-item active" data-view="new"><span class="ico" data-icon="plus"></span>Nouveau projet</button>
+        <button class="nav-item" data-view="autoedit"><span class="ico" data-icon="wand"></span>AUTOEDIT</button>
+        <button class="nav-item" data-view="projects"><span class="ico" data-icon="grid"></span>Projets<span class="nav-badge" id="recent-count">0</span></button>
+        <button class="nav-item" data-view="exports"><span class="ico" data-icon="film"></span>Exports<span class="nav-badge" id="exports-count"></span></button>
+        <button class="nav-item" data-view="inbox"><span class="ico" data-icon="mail"></span>Messagerie<span class="nav-badge hot" id="inbox-count"></span></button>
+        <button class="nav-item" data-view="notes"><span class="ico" data-icon="note"></span>Notes</button>
+        <button class="nav-item" data-view="settings"><span class="ico" data-icon="settings"></span>Réglages</button>
+      </nav>
+
+      <div class="side-pins hidden" id="side-pins"></div>
+
+      <div class="sidebar-job hidden" id="sidebar-job">
+        <div class="sj-head"><span class="pulse"></span><span id="sj-title">Création en cours</span></div>
+        <div class="sj-name" id="sj-name"></div>
+        <div class="bar small"><div class="bar-fill" id="sj-bar"></div></div>
+      </div>
+
+      <div class="sidebar-foot">
+        <div class="update-card hidden" id="update-card"></div>
+        <div class="root-card" id="root-card" title="Changer le dossier des projets">
+          <span class="ico" data-icon="hdd"></span>
+          <div class="root-text">
+            <span class="root-label">Dossier des projets</span>
+            <span class="root-path" id="root-path">—</span>
+          </div>
+        </div>
+        <button class="version" id="version"></button>
+      </div>
+    </aside>
+
+    <main class="content">
+      <!-- NOUVEAU PROJET -->
+      <section class="view active" id="view-new">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">Nouveau projet</div>
+            <h1>Prépare ton montage <span class="grad">en un clic.</span></h1>
+            <p class="lead">Colle un lien Google Drive, donne un nom : Coffile télécharge, trie et crée ton projet Premiere Pro.</p>
+          </div>
+        </div>
+
+        <div class="new-grid">
+          <div class="card form-card">
+            <div class="seg big new-mode" id="new-mode">
+              <button class="active" data-mode="new"><span class="ico" data-icon="plus"></span>Nouveau projet</button>
+              <button data-mode="add"><span class="ico" data-icon="folderOpen"></span>Ajouter à un projet</button>
+            </div>
+            <div class="field">
+              <label for="drive-url">Lien Google Drive <span class="opt">dossier ou fichier partagé</span></label>
+              <div class="input-wrap">
+                <span class="input-ico drive-ico" data-icon="drive"></span>
+                <input id="drive-url" type="text" placeholder="https://drive.google.com/drive/folders/…" spellcheck="false" autocomplete="off" />
+                <button class="btn ghost sm" id="paste-btn"><span class="ico" data-icon="clipboard"></span>Coller</button>
+              </div>
+              <div class="drive-status" id="drive-status"></div>
+            </div>
+
+            <div class="field">
+              <label>Compte Google <span class="opt">utilisé pour télécharger le Drive</span></label>
+              <div class="account-pick" id="account-pick"></div>
+            </div>
+
+            <div class="field addto-field hidden" id="addto-field">
+              <label>Projet existant <span class="opt">les fichiers vont dans RUSHES et IMAGES</span></label>
+              <button class="addto-pick" id="addto-pick"></button>
+            </div>
+
+            <div class="field name-field">
+              <label for="project-name">Nom du projet</label>
+              <div class="input-wrap has-badge">
+                <button class="pbadge-btn" id="new-badge" title="Icône et couleur du projet"></button>
+                <input id="project-name" type="text" placeholder="Ex : CLIENT_Pub_Été_2026" maxlength="120" spellcheck="false" autocomplete="off" />
+              </div>
+              <div class="hint" id="name-hint"></div>
+            </div>
+
+            <div class="field slots-field">
+              <label>Bibliothèques liées <span class="opt">copiées dans chaque nouveau projet</span></label>
+              <div class="slots" id="slots-new"></div>
+            </div>
+
+            <label class="ae-toggle" id="ae-new" title="Décochée à chaque nouveau projet">
+              <input type="checkbox" id="ae-check" />
+              <span class="ae-t-text"><b><span class="ico" data-icon="wand"></span>AUTOEDIT</b><span>Quand tout est téléchargé : tu classes les rushes, Coffile fait le bout à bout sans les blancs, tu ajoutes images et sound effects, puis Premiere s'ouvre.</span></span>
+            </label>
+
+            <button class="btn primary xl" id="create-btn" disabled>
+              <span id="create-label">Créer le projet</span>
+              <span class="kbd">Ctrl ↵</span>
+            </button>
+          </div>
+
+          <div class="card preview-card">
+            <div class="card-title"><span class="ico" data-icon="tree"></span>Aperçu du projet</div>
+            <div class="tree" id="tree"></div>
+            <div class="premiere-status" id="premiere-status"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PROGRESSION -->
+      <section class="view" id="view-progress">
+        <div class="progress-head">
+          <div>
+            <div class="eyebrow" id="pg-eyebrow">Création en cours</div>
+            <h1 id="pg-name">Projet</h1>
+            <button class="path-link" id="pg-path"></button>
+          </div>
+          <div class="pg-actions" id="pg-actions"></div>
+        </div>
+
+        <div class="card browser-card hidden" id="browser-card"></div>
+
+        <div class="card hero-progress" id="hero-progress">
+          <div class="hp-top">
+            <div class="hp-percent"><span id="pg-percent">0</span><small>%</small></div>
+            <div class="hp-stats">
+              <div class="stat"><span class="stat-label">Téléchargé</span><span class="stat-value" id="st-bytes">—</span></div>
+              <div class="stat"><span class="stat-label">Vitesse</span><span class="stat-value" id="st-speed">—</span></div>
+              <div class="stat"><span class="stat-label">Temps restant</span><span class="stat-value" id="st-eta">—</span></div>
+              <div class="stat"><span class="stat-label">Fichiers</span><span class="stat-value" id="st-files">—</span></div>
+            </div>
+          </div>
+          <div class="bar big"><div class="bar-fill" id="pg-bar"></div></div>
+          <div class="steps" id="steps"></div>
+        </div>
+
+        <div class="card done-card hidden" id="done-card"></div>
+
+        <div class="card files-card">
+          <div class="card-title">
+            <span class="ico" data-icon="list"></span>Fichiers
+            <div class="seg" id="file-filter">
+              <button class="active" data-f="all">Tous</button>
+              <button data-f="video">Vidéos</button>
+              <button data-f="image">Images</button>
+              <button data-f="error">Erreurs</button>
+            </div>
+          </div>
+          <div class="file-list" id="file-list"></div>
+          <div class="warnings" id="warnings"></div>
+        </div>
+      </section>
+
+      <!-- PROJETS -->
+      <section class="view" id="view-projects">
+        <div class="page-head row">
+          <div>
+            <div class="eyebrow">Bibliothèque</div>
+            <h1>Projets</h1>
+            <button class="path-link" id="lib-root"></button>
+          </div>
+          <div class="lib-tools">
+            <div class="input-wrap search">
+              <span class="input-ico" data-icon="search"></span>
+              <input id="search" type="text" placeholder="Rechercher un projet…" spellcheck="false" />
+            </div>
+            <div class="seg big" id="lib-sort">
+              <button class="active" data-s="modified">Récents</button>
+              <button data-s="name">Nom</button>
+              <button data-s="bytes">Taille</button>
+            </div>
+            <button class="btn icon-only" id="lib-refresh" title="Actualiser"><span class="ico" data-icon="refresh"></span></button>
+          </div>
+        </div>
+        <div class="lib-summary" id="lib-summary"></div>
+        <div class="projects-grid" id="projects-grid"></div>
+      </section>
+
+      <!-- EXPORTS -->
+      <section class="view" id="view-exports">
+        <div class="page-head row">
+          <div>
+            <div class="eyebrow">Bibliothèque</div>
+            <h1>Exports</h1>
+            <p class="lead">Tous les rendus de tes projets. Survole une vidéo pour la lire, <b>double-clic</b> pour l'afficher dans l'Explorateur.</p>
+          </div>
+          <div class="lib-tools">
+            <div class="input-wrap search">
+              <span class="input-ico" data-icon="search"></span>
+              <input id="exp-search" type="text" placeholder="Rechercher un export…" spellcheck="false" />
+            </div>
+            <div class="seg big" id="exp-group">
+              <button class="active" data-g="version">Par version</button>
+              <button data-g="format">Par format</button>
+              <button data-g="project">Par projet</button>
+            </div>
+            <button class="btn rename-btn" id="exp-rename" title="Renommer les exports d'un projet"><span class="ico" data-icon="wand"></span>Auto rename</button>
+            <div class="seg big icons" id="exp-view">
+              <button class="active" data-v="grid" title="Grille"><span class="ico" data-icon="grid2"></span></button>
+              <button data-v="list" title="Liste"><span class="ico" data-icon="rows"></span></button>
+            </div>
+            <button class="btn icon-only" id="exp-refresh" title="Actualiser"><span class="ico" data-icon="refresh"></span></button>
+          </div>
+        </div>
+        <div class="exp-filters" id="exp-filters"></div>
+        <div class="exp-list" id="exp-list" tabindex="0"></div>
+      </section>
+
+      <!-- MESSAGERIE -->
+      <section class="view" id="view-inbox">
+        <div class="page-head row">
+          <div>
+            <div class="eyebrow">Messagerie</div>
+            <h1>Mails &amp; Chat</h1>
+            <p class="lead">Coffile repère les demandes de montage et leurs liens Drive. Un clic sur <b>Télécharger</b> crée le projet et lance tout le reste.</p>
+          </div>
+          <button class="btn sm dino-btn" id="dino-play" title="Pause café : le jeu du dino"><img id="dino-btn-img" alt="" />Jouer</button>
+        </div>
+        <div class="inbox-bar">
+          <div class="seg big" id="inbox-tabs">
+            <button class="active" data-t="mail"><span class="ico" data-icon="mail"></span>Mail</button>
+            <button data-t="chat"><span class="ico" data-icon="chat"></span>Chat</button>
+          </div>
+          <div class="select-wrap inbox-account"><span id="inbox-avatar"></span><select id="inbox-account"></select></div>
+          <div class="input-wrap search" id="inbox-search-wrap">
+            <span class="input-ico" data-icon="search"></span>
+            <input id="inbox-search" type="text" placeholder="Rechercher dans Gmail…" spellcheck="false" />
+          </div>
+          <div class="seg big" id="inbox-filter">
+            <button class="active" data-f="all">Tout</button>
+            <button data-f="montage"><span class="ico" data-icon="sparkles"></span>Montages</button>
+          </div>
+          <div class="sf-wrap">
+            <button class="btn sender-filter" id="sf-btn" title="Filtre : seuls les expéditeurs choisis comptent comme montages"><span class="ico" data-icon="filter"></span>Filtre<span class="sf-count" id="sf-count"></span></button>
+            <div class="sf-pop hidden" id="sf-pop"></div>
+          </div>
+          <button class="btn icon-only" id="inbox-refresh" title="Actualiser"><span class="ico" data-icon="refresh"></span></button>
+        </div>
+        <div class="inbox-detected" id="inbox-detected"></div>
+        <div class="inbox-body" id="inbox-body"></div>
+      </section>
+
+      <!-- RÉGLAGES -->
+      <section class="view" id="view-autoedit">
+        <div class="page-head">
+          <div class="eyebrow">AUTOEDIT</div>
+          <h1>Un dossier de rushes, <span class="grad">un montage.</span></h1>
+          <p class="lead">Choisis un dossier sur ton PC : Coffile crée le projet et range les fichiers. Tu classes les rushes (l'ordre de tournage est déjà proposé), AUTOEDIT fait le bout à bout sans les blancs, puis tu valides pour Premiere.</p>
+        </div>
+        <div class="aeh" id="aeh"></div>
+      </section>
+
+      <section class="view" id="view-notes">
+        <div class="page-head row">
+          <div>
+            <div class="eyebrow">Notes</div>
+            <h1>Mes notes</h1>
+            <p class="lead">Chaque feuille est un fichier texte, enregistré tout seul. Écris un code couleur comme <b>A7998B</b> : il s'affiche dans sa couleur, et un clic le copie pour Premiere Pro.</p>
+          </div>
+          <div class="notes-head-actions">
+            <button class="btn sm ghost" id="notes-folder" title="Ouvrir le dossier des notes"><span class="ico" data-icon="folderOpen"></span>Dossier</button>
+            <button class="btn sm ghost" id="notes-choose" title="Changer le dossier des notes"><span class="ico" data-icon="settings"></span></button>
+          </div>
+        </div>
+        <div class="notes-pane">
+          <div class="notes-side">
+            <button class="btn primary notes-new" id="notes-new"><span class="ico" data-icon="plus"></span>Nouvelle feuille</button>
+            <div class="notes-list" id="notes-list"></div>
+            <div class="notes-dir" id="notes-dir"></div>
+          </div>
+          <div class="notes-main" id="notes-main">
+            <div class="notes-top">
+              <input class="notes-title" id="notes-title" spellcheck="false" maxlength="120" placeholder="Nom de la feuille" />
+              <span class="notes-status" id="notes-status"></span>
+              <button class="btn sm ghost" id="notes-full" title="Plein écran (Échap pour sortir)"><span class="ico" data-icon="expand"></span><span id="notes-full-label">Plein écran</span></button>
+              <button class="btn sm ghost icon-only" id="notes-delete" title="Mettre la feuille à la corbeille"><span class="ico" data-icon="trash"></span></button>
+            </div>
+            <div class="notes-toolbar" id="notes-toolbar">
+              <button data-cmd="bold" title="Gras (Ctrl+B)"><span class="ico" data-icon="bold"></span></button>
+              <button data-cmd="upper" title="MAJUSCULES (Ctrl+Maj+U)"><span class="ico" data-icon="caseUpper"></span></button>
+              <span class="tb-sep"></span>
+              <button data-cmd="h1" title="Titre (Ctrl+1)"><span class="ico" data-icon="heading"></span>Titre</button>
+              <button data-cmd="h2" title="Sous-titre (Ctrl+2)"><span class="ico" data-icon="heading2"></span>Sous-titre</button>
+              <button data-cmd="p" title="Texte normal (Ctrl+0)"><span class="ico" data-icon="pilcrow"></span>Texte</button>
+              <span class="tb-sep"></span>
+              <div class="tb-colors" id="notes-colors"></div>
+              <label class="tb-custom" title="Autre couleur"><input type="color" id="notes-color-input" value="#e8772e" /><span class="ico" data-icon="palette"></span></label>
+              <button data-cmd="clear" title="Enlever la couleur et le gras"><span class="ico" data-icon="eraser"></span></button>
+              <span class="tb-sep"></span>
+              <div class="tb-size" title="Taille du texte">
+                <button data-cmd="smaller" title="Texte plus petit">A−</button>
+                <span id="notes-size">15</span>
+                <button data-cmd="bigger" title="Texte plus grand">A+</button>
+              </div>
+              <button data-cmd="emoji" title="Ajouter un emoji"><span class="ico" data-icon="smile"></span></button>
+            </div>
+            <div class="notes-cmds" id="notes-cmds"></div>
+            <div class="notes-editor" id="notes-editor" contenteditable="true" spellcheck="true" data-placeholder="Écris ici… Titres, gras, MAJUSCULES, couleurs, et les codes couleur comme A7998B."></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-settings">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">Réglages</div>
+            <h1>Configuration</h1>
+            <p class="lead">Ces réglages s'appliquent à tous les nouveaux projets.</p>
+          </div>
+        </div>
+
+        <div class="settings">
+          <div class="card setting">
+            <div class="setting-ico c-rushes"><span data-icon="hdd"></span></div>
+            <div class="setting-body">
+              <h3>Dossier des projets</h3>
+              <p>Chaque projet est créé dans un sous-dossier portant son nom.</p>
+              <div class="path-box" id="set-root"></div>
+            </div>
+            <div class="setting-actions">
+              <button class="btn" id="set-root-btn">Changer</button>
+              <button class="btn ghost icon-only" id="set-root-open" title="Ouvrir"><span class="ico" data-icon="external"></span></button>
+            </div>
+          </div>
+
+          <div class="card setting">
+            <div class="setting-ico c-montage"><span class="pr-logo">Pr</span></div>
+            <div class="setting-body">
+              <h3>Projet Premiere Pro modèle</h3>
+              <p>Coffile duplique ce projet vide et le renomme pour chaque nouveau projet (dans <b>MONTAGE</b>). Tes réglages de séquence, bacs et préférences sont conservés.</p>
+              <ol class="howto">
+                <li>Ouvre Premiere Pro › <b>Nouveau projet</b>, nomme-le <i>Modèle</i> et enregistre-le.</li>
+                <li>Sélectionne ce fichier <code>.prproj</code> ici. C'est tout.</li>
+              </ol>
+              <div class="path-box" id="set-prproj"></div>
+            </div>
+            <div class="setting-actions">
+              <button class="btn" id="set-prproj-btn">Choisir…</button>
+              <button class="btn ghost icon-only" id="set-prproj-clear" title="Retirer"><span class="ico" data-icon="x"></span></button>
+            </div>
+          </div>
+
+          <div class="card setting column">
+            <div class="setting-row">
+              <div class="setting-ico c-musique"><span data-icon="link"></span></div>
+              <div class="setting-body">
+                <h3>Bibliothèques liées</h3>
+                <p>Par défaut, MUSIQUE, SOUND EFFECT et TEMPLATE sont créés vides. Lie-les à un dossier de ton PC : son contenu sera copié dans chaque nouveau projet.</p>
+              </div>
+            </div>
+            <div class="slots wide" id="slots-settings"></div>
+          </div>
+
+          <div class="card setting column" id="chrome-setting">
+            <div class="setting-row">
+              <div class="setting-ico c-rushes"><span data-icon="chrome"></span></div>
+              <div class="setting-body">
+                <h3>Chrome de Coffile <span class="pill ok">Sans clé</span></h3>
+                <p>Coffile lance son propre Chrome, caché derrière l'app, et s'en sert pour lire Gmail et Google Chat et pour télécharger les Drive privés. Connecte-toi à Google une seule fois dans ce Chrome. Il n'y a ni clé ni configuration Google Cloud, et Coffile ne voit jamais ton mot de passe.</p>
+                <div class="seg big" id="set-inbox-mode">
+                  <button data-m="chrome">Messagerie via Chrome</button>
+                  <button data-m="api">Messagerie via l'API Google</button>
+                </div>
+              </div>
+            </div>
+            <div class="accounts" id="chrome-accounts"></div>
+            <div class="acc-bar">
+              <div class="acc-btns">
+                <button class="btn primary" data-chrome-login=""><span class="ico" data-icon="plus"></span><span id="chrome-login-label">Se connecter à Google</span></button>
+                <button class="btn" data-chrome-show><span class="ico" data-icon="external"></span>Afficher la fenêtre Chrome</button>
+                <button class="btn ghost" data-chrome-hide>Masquer</button>
+                <button class="btn ghost danger" data-chrome-reset title="Ferme le Chrome de Coffile et efface sa session pour repartir de zéro">Réinitialiser</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card setting column" id="google-setting">
+            <div class="setting-row">
+              <div class="setting-ico c-images"><span data-icon="user"></span></div>
+              <div class="setting-body">
+                <h3>Comptes Google (API) <span class="pill">Optionnel</span></h3>
+                <p>Connecte un ou plusieurs comptes : Coffile télécharge alors <b>tout seul</b> les Drive privés auxquels ils ont accès. La connexion se fait dans Chrome. Coffile a un accès en lecture seule et ne voit jamais ton mot de passe.</p>
+              </div>
+            </div>
+            <div class="accounts" id="accounts-list"></div>
+            <div class="acc-bar">
+              <button class="btn primary" id="acc-connect"><span class="ico" data-icon="plus"></span>Connecter un compte Google</button>
+              <div class="acc-profile">
+                <span>Ouvrir Google avec le profil Chrome</span>
+                <div class="select-wrap"><select id="chrome-profile"></select></div>
+              </div>
+            </div>
+            <details class="oauth" id="oauth-details">
+              <summary><span class="ico" data-icon="key"></span><span id="oauth-summary">Configuration de la connexion Google</span></summary>
+              <div class="oauth-body">
+                <p class="muted">À faire une seule fois (5 minutes). Google demande que chaque application ait son propre identifiant.</p>
+                <ol class="oauth-steps">
+                  <li><span>1</span><div>Crée un projet nommé <b>Coffile</b> dans Google Cloud. <button class="link" data-url="https://console.cloud.google.com/projectcreate">Ouvrir</button></div></li>
+                  <li><span>2</span><div>Active l'<b>API Google Drive</b> pour ce projet. <button class="link" data-url="https://console.cloud.google.com/apis/library/drive.googleapis.com">Ouvrir</button><br />Pour la Messagerie, active aussi l'<b>API Gmail</b> <button class="link" data-url="https://console.cloud.google.com/apis/library/gmail.googleapis.com">Ouvrir</button> et l'<b>API Google Chat</b> <button class="link" data-url="https://console.cloud.google.com/apis/library/chat.googleapis.com">Ouvrir</button>.</div></li>
+                  <li><span>3</span><div>Configure l'écran de consentement : public <b>Externe</b>, ajoute ton adresse e-mail. Dans « Audience », clique sur <b>Publier l'application</b> pour que la connexion n'expire pas au bout de 7 jours. <button class="link" data-url="https://console.cloud.google.com/auth/overview">Ouvrir</button></div></li>
+                  <li><span>4</span><div>Crée un client OAuth de type <b>Application de bureau</b>, puis copie l'ID client et le code secret ci-dessous. <button class="link" data-url="https://console.cloud.google.com/auth/clients">Ouvrir</button></div></li>
+                </ol>
+                <div class="oauth-form">
+                  <div class="input-wrap"><span class="input-ico" data-icon="user"></span><input id="oauth-id" type="text" placeholder="ID client (…apps.googleusercontent.com)" spellcheck="false" autocomplete="off" /></div>
+                  <div class="input-wrap"><span class="input-ico" data-icon="key"></span><input id="oauth-secret" type="password" placeholder="Code secret du client (GOCSPX-…)" spellcheck="false" autocomplete="off" /></div>
+                  <button class="btn" id="oauth-save">Enregistrer</button>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div class="card setting">
+            <div class="setting-ico c-rushes"><span data-icon="globe"></span></div>
+            <div class="setting-body">
+              <h3>Si aucun compte n'a accès</h3>
+              <p>Si aucun compte connecté n'a accès au Drive, Coffile peut ouvrir le lien dans Chrome. Tu cliques sur « Télécharger » et Coffile récupère le .zip dans ton dossier Téléchargements, l'extrait et range tout.</p>
+              <div class="seg big" id="set-mode">
+                <button data-m="auto">Automatique</button>
+                <button data-m="browser">Toujours via Chrome</button>
+                <button data-m="direct">Direct uniquement</button>
+              </div>
+              <div class="sub-label">Dossier de téléchargement du navigateur</div>
+              <div class="path-row">
+                <div class="path-box" id="set-dl"></div>
+                <button class="btn" id="set-dl-btn">Changer</button>
+              </div>
+              <label class="check"><input type="checkbox" id="set-delzip" /><span class="check-box"></span>Supprimer les .zip du dossier Téléchargements après l'import</label>
+            </div>
+          </div>
+
+          <div class="card setting" id="update-setting">
+            <div class="setting-ico c-images"><span data-icon="download"></span></div>
+            <div class="setting-body">
+              <h3>Mises à jour</h3>
+              <p>Coffile recherche automatiquement les nouvelles versions au démarrage, les télécharge en arrière-plan et les installe au prochain redémarrage.</p>
+              <div class="update-box" id="update-box"></div>
+            </div>
+            <div class="setting-actions" id="update-actions"></div>
+          </div>
+
+          <div class="card setting">
+            <div class="setting-ico c-images"><span data-icon="drive"></span></div>
+            <div class="setting-body">
+              <h3>Clé API Google Drive <span class="pill">Optionnel</span></h3>
+              <p>Sans clé, Coffile lit les dossiers partagés publiquement. Une clé API gratuite rend l'analyse plus fiable sur les très gros dossiers et affiche la taille des fichiers.</p>
+              <div class="input-wrap">
+                <span class="input-ico" data-icon="key"></span>
+                <input id="api-key" type="password" placeholder="AIza…" spellcheck="false" autocomplete="off" />
+                <button class="btn ghost sm" id="api-key-toggle">Afficher</button>
+              </div>
+              <button class="link" id="api-help">Comment obtenir une clé API ?</button>
+            </div>
+          </div>
+
+          <div class="about">
+            <img src="assets/icon.png" alt="" />
+            <div><b>Coffile</b> <span id="about-version"></span><br /><span class="muted">Préparation automatique de projets de montage.</span></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Onboarding -->
+  <div class="modal-backdrop hidden" id="onboarding">
+    <div class="modal">
+      <div class="modal-glow"></div>
+      <img src="assets/icon.png" class="modal-logo" alt="" />
+      <h2>Bienvenue dans Coffile</h2>
+      <p class="lead">Deux réglages rapides et tu es prêt à monter.</p>
+
+      <div class="ob-step">
+        <div class="ob-num">1</div>
+        <div class="ob-body">
+          <h4>Où ranger tes projets ?</h4>
+          <div class="path-box" id="ob-root"></div>
+        </div>
+        <button class="btn" id="ob-root-btn">Changer</button>
+      </div>
+
+      <div class="ob-step">
+        <div class="ob-num">2</div>
+        <div class="ob-body">
+          <h4>Ton projet Premiere Pro modèle</h4>
+          <p class="muted">Crée un projet vide dans Premiere et sélectionne-le : Coffile le dupliquera pour chaque projet.</p>
+          <div class="path-box" id="ob-prproj"></div>
+        </div>
+        <button class="btn" id="ob-prproj-btn">Choisir…</button>
+      </div>
+
+      <div class="modal-actions">
+        <span class="muted small">Modifiable à tout moment dans Réglages.</span>
+        <button class="btn primary" id="ob-done">Commencer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Détail d'un projet -->
+  <div class="modal-backdrop hidden" id="project-modal">
+    <div class="modal wide" id="project-modal-body"></div>
+  </div>
+
+  <!-- AUTOEDIT : classer les rushes, bout à bout sans les blancs, images et sound effects, Premiere -->
+  <div class="ae hidden" id="autoedit">
+    <header class="ae-head">
+      <div class="ae-title"><span class="ae-logo"><span class="ico" data-icon="wand"></span>AUTOEDIT</span><b id="ae-project"></b></div>
+      <div class="ae-steps" id="ae-steps"></div>
+      <button class="btn ghost" id="ae-close"><span class="ico" data-icon="x"></span>Fermer</button>
+    </header>
+    <div class="ae-body" id="ae-body"></div>
+    <footer class="ae-foot" id="ae-foot"></footer>
+    <div class="ae-modal hidden" id="ae-picker"></div>
+  </div>
+
+  <!-- Pause café : le jeu du dino en plein écran (bouton Jouer, création d'un projet) -->
+  <div class="dino-full hidden" id="dino-full">
+    <div class="df-top">
+      <div class="df-brand"><img id="df-logo" alt="" /><div><div class="eyebrow">Pause café</div><b>Le dino de Coffile</b></div></div>
+      <div class="df-job hidden" id="df-job">
+        <div class="df-job-head"><span class="spinner"></span><b id="df-name"></b><span class="df-pct" id="df-pct"></span></div>
+        <div class="bar small"><div class="bar-fill" id="df-bar"></div></div>
+        <div class="df-step" id="df-step"></div>
+      </div>
+      <button class="btn" id="df-close"></button>
+    </div>
+    <div class="df-stage dino-slot" data-dino="play" data-fit="height" data-scale-max="3"></div>
+    <div class="dino-keys"><span><kbd>Espace</kbd> ou <kbd>↑</kbd> sauter</span><span><kbd>↓</kbd> redescendre</span><span><kbd>Échap</kbd> quitter</span></div>
+  </div>
+
+  <!-- Notes : menu des commandes « / » (aussi au clic droit), emojis, choix d'un projet ou d'un export -->
+  <div class="cmd-menu hidden" id="cmd-menu"></div>
+  <div class="emoji-pop hidden" id="emoji-pop"></div>
+  <div class="modal-backdrop hidden" id="note-picker">
+    <div class="modal np-modal">
+      <button class="btn icon-only ghost modal-close" data-np-close title="Fermer"><span class="ico" data-icon="x"></span></button>
+      <div class="eyebrow" id="np-eyebrow">Lier à la note</div>
+      <h2 id="np-title"></h2>
+      <div class="input-wrap search np-search">
+        <span class="input-ico" data-icon="search"></span>
+        <input id="np-search" type="text" placeholder="Rechercher…" spellcheck="false" />
+      </div>
+      <div class="np-list" id="np-list"></div>
+    </div>
+  </div>
+
+  <!-- Choix d'un projet existant (Ajouter à un projet) -->
+  <div class="modal-backdrop hidden" id="proj-pick">
+    <div class="modal np-modal">
+      <button class="btn icon-only ghost modal-close" data-pp-close title="Fermer"><span class="ico" data-icon="x"></span></button>
+      <div class="eyebrow">Ajouter à un projet</div>
+      <h2 id="pp-title">Choisir un projet</h2>
+      <div class="input-wrap search np-search">
+        <span class="input-ico" data-icon="search"></span>
+        <input id="pp-search" type="text" placeholder="Rechercher un projet…" spellcheck="false" />
+      </div>
+      <div class="np-list" id="pp-list"></div>
+    </div>
+  </div>
+
+  <!-- Fiche plein écran d'un mail ou d'un message Chat -->
+  <div class="sheet hidden" id="msg-sheet"></div>
+
+  <!-- Auto rename des exports -->
+  <div class="modal-backdrop hidden" id="rename-modal">
+    <div class="modal wide rename-modal" id="rename-body"></div>
+  </div>
+
+  <!-- Personnalisation d'un projet -->
+  <div class="popover hidden" id="customizer"></div>
+
+  <div class="toasts" id="toasts"></div>
+
+  <script src="icons.js"></script>
+  <script src="dino.js"></script>
+  <script src="app.js"></script>
+  <script src="notes.js"></script>
+  <script src="autoedit-core.js"></script>
+  <script src="autoedit.js"></script>
+  <script src="autoedit-home.js"></script>
+</body>
+</html>

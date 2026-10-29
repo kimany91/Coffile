@@ -1,0 +1,97 @@
+{
+  "name": "filedit",
+  "productName": "Coffile",
+  "version": "1.7.8",
+  "description": "Coffile – préparation automatique de projets de montage",
+  "author": "Coffile",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis --x64 --publish never",
+    "release": "electron-builder --win nsis --x64 --publish always"
+  },
+  "build": {
+    "appId": "fr.filedit.app",
+    "productName": "Coffile",
+    "copyright": "© 2026 Coffile",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "extraResources": [
+        {
+          "from": "vendor/ffmpeg-win",
+          "to": "ffmpeg",
+          "filter": [
+            "ffmpeg.exe",
+            "README.txt"
+          ]
+        },
+        {
+          "from": "vendor/whisper-win",
+          "to": "whisper",
+          "filter": [
+            "*.exe",
+            "*.dll",
+            "README.txt"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Coffile",
+      "artifactName": "Coffile-Setup-${version}.exe",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "uninstallDisplayName": "Coffile",
+      "language": "1036",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kimany91",
+        "repo": "Coffile",
+        "releaseType": "release"
+      }
+    ],
+    "asarUnpack": [
+      "node_modules/playwright-core/**"
+    ]
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "playwright-core": "^1.64.1",
+    "yauzl": "^3.2.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kimany91/Coffile.git"
+  }
+}
