@@ -325,7 +325,7 @@ Les miniatures sont créées une seule fois, puis gardées en cache. L'aperçu a
 
 ## Mises à jour automatiques
 
-Coffile cherche une nouvelle version **à chaque lancement**, puis toutes les heures, et la télécharge en arrière-plan. Une fois téléchargée, il l'**installe tout seul**. Un compte à rebours de 15 s s'affiche en bas à gauche (**Maintenant** ou **Plus tard**), puis Coffile se ferme, s'installe sans fenêtre et se relance sur la nouvelle version. Si Coffile est occupé (projet en cours de création, AUTOEDIT ouvert), il attend la fin. **Plus tard** garde l'installation pour la fermeture de Coffile.
+Coffile cherche une nouvelle version **à chaque lancement**, puis toutes les heures, et la télécharge en arrière-plan. Une fois téléchargée, il l'**installe tout seul**. La mise à jour est **obligatoire** : un compte à rebours de 15 s couvre tout l'écran (on peut seulement redémarrer tout de suite), puis Coffile se ferme, s'installe sans fenêtre et se relance sur la nouvelle version. Si Coffile est occupé (projet en cours de création, AUTOEDIT ouvert), il attend la fin pour ne rien perdre, puis installe. Fermer Coffile avant l'installe aussi.
 
 Les versions sont publiées dans les **Releases GitHub** du dépôt `kimany91/Coffile`. Ce dépôt doit être **public** : sinon, les PC ne peuvent pas lire les mises à jour.
 

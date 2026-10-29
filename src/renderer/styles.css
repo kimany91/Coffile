@@ -1825,6 +1825,14 @@ b.deadline.dl-late { color: #fca5a5; }
 .ae-color { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; cursor: pointer; }
 .ae-color input { width: 30px; height: 24px; padding: 0; border: 1px solid var(--line-2); border-radius: 6px; background: none; cursor: pointer; }
 .uc-acts { display: flex; gap: 6px; }
+.update-lock { z-index: 300; }
+.ul-modal { width: min(460px, calc(100vw - 40px)); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.ul-modal .modal-logo { margin-bottom: 4px; }
+.ul-modal h2 { margin: 0; }
+.ul-modal .lead { margin: 0; }
+.ul-modal .bar { width: 100%; position: relative; }
+.ul-modal .bar-fill { transition: width 1s linear; }
+.ul-modal .btn { position: relative; }
 
 /* Onglet AUTOEDIT : dossier de rushes du PC */
 .aeh { display: flex; flex-direction: column; gap: 18px; }

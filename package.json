@@ -1,7 +1,7 @@
 {
   "name": "filedit",
   "productName": "Coffile",
-  "version": "1.7.8",
+  "version": "1.7.9",
   "description": "Coffile – préparation automatique de projets de montage",
   "author": "Coffile",
   "main": "src/main.js",

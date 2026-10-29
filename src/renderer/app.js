@@ -2863,15 +2863,14 @@ function downloadAllFromMessage(btn, addTo = null) {
 
 
 // ---------- Mises à jour ----------
-// ---------- Installation automatique des mises à jour ----------
-// Une version téléchargée s'installe toute seule dès que Coffile n'est pas occupé (création de
-// projet, AUTOEDIT ouvert) : compte à rebours de 15 s, « Plus tard » la garde pour la fermeture.
-const autoInstall = { timer: null, wait: null, left: 0, postponed: false };
+// Installation obligatoire : une version téléchargée s'installe dès que Coffile n'est pas occupé
+// (création de projet, AUTOEDIT ouvert). Compte à rebours de 15 s sur tout l'écran, sans « Plus tard ».
+const autoInstall = { timer: null, wait: null, left: 0 };
 const busyForUpdate = () => !!(state.jobRunning || (window.AutoEdit && AutoEdit.isOpen()));
 
 function scheduleAutoInstall() {
   const u = state.update;
-  if (!u || u.status !== 'ready' || autoInstall.postponed || autoInstall.timer) return;
+  if (!u || u.status !== 'ready' || autoInstall.timer) return;
   clearTimeout(autoInstall.wait);
   if (busyForUpdate()) {
     autoInstall.wait = setTimeout(scheduleAutoInstall, 15000);
@@ -2915,11 +2914,18 @@ function renderUpdate() {
       card,
       u.status === 'ready'
         ? auto != null
-          ? `<div class="uc-head">${icon('sparkles')}Version ${esc(u.available)}</div><div class="uc-sub">Coffile redémarre dans <b>${auto} s</b> pour l'installer.</div><div class="uc-acts"><button class="btn primary sm" id="uc-install">Maintenant</button><button class="btn ghost sm" id="uc-later">Plus tard</button></div>`
-          : `<div class="uc-head">${icon('sparkles')}Version ${esc(u.available)} prête</div><div class="uc-sub">${autoInstall.postponed ? "Elle s'installera à la fermeture de Coffile." : "S'installe dès que Coffile n'est plus occupé."}</div><button class="btn primary sm" id="uc-install">Redémarrer et installer</button>`
+          ? `<div class="uc-head">${icon('sparkles')}Version ${esc(u.available)}</div><div class="uc-sub">Coffile redémarre dans <b>${auto} s</b> pour l'installer.</div>`
+          : `<div class="uc-head">${icon('sparkles')}Version ${esc(u.available)} prête</div><div class="uc-sub">Elle s'installe dès que Coffile a fini ce qu'il fait.</div><button class="btn primary sm" id="uc-install">Redémarrer et installer</button>`
         : `<div class="uc-head">${icon('download')}Mise à jour ${esc(u.available || '')}</div><div class="bar small"><div class="bar-fill" style="width:${u.percent || 0}%"></div></div><div class="uc-sub">Téléchargement… ${u.percent || 0}%</div>`
     );
   } else card.classList.add('hidden');
+
+  // Pendant le compte à rebours, tout l'écran est bloqué : la mise à jour est obligatoire.
+  const lock = $('#update-lock');
+  if (autoInstall.timer) {
+    setHTML(lock, `<div class="modal ul-modal"><div class="modal-glow"></div><img src="assets/icon.png" class="modal-logo" alt="" /><h2>Mise à jour ${esc(u.available || '')}</h2><p class="lead">Coffile redémarre dans <b>${autoInstall.left} s</b> pour installer la nouvelle version, puis se relance tout seul.</p><div class="bar small"><div class="bar-fill" style="width:${Math.round(((15 - autoInstall.left) / 15) * 100)}%"></div></div><button class="btn primary" id="uc-install">${icon('refresh')}Redémarrer maintenant</button></div>`);
+    lock.classList.remove('hidden');
+  } else lock.classList.add('hidden');
 
   const box = $('#update-box');
   const acts = $('#update-actions');
@@ -3227,11 +3233,6 @@ function bind() {
     if (e.target.closest('#bc-finish')) {
       e.target.closest('#bc-finish').disabled = true;
       api.finishImport();
-    }
-    if (e.target.closest('#uc-later')) {
-      autoInstall.postponed = true;
-      stopAutoInstall();
-      return;
     }
     if (e.target.closest('#uc-install') || e.target.closest('#up-install')) installUpdate();
     if (e.target.closest('#up-check')) api.checkUpdate();
